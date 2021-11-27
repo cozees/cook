@@ -174,7 +174,7 @@ func (p *implParser) parseProgram(f *token.File, cp ast.CookProgram) {
 					inTarget = true
 					continue
 				}
-			} else if p.next(); p.tryParseAssignInstruction(lit, block) {
+			} else if p.next(); p.tryParseAssignStatement(lit, block) {
 				continue
 			} else {
 				p.errorHandler(p.cOffs, f, fmt.Sprintf("invalid token %s", p.cTok))
@@ -226,7 +226,7 @@ func (p *implParser) parseSimpleStatement(block ast.BlockStatement) bool {
 				} else {
 					return false
 				}
-			} else if p.tryParseAssignInstruction(lit, block) {
+			} else if p.tryParseAssignStatement(lit, block) {
 				return true
 			} else {
 				p.errorHandler(p.cOffs, p.s.file, fmt.Sprintf("invalid token %s", p.cTok))
@@ -286,7 +286,7 @@ revisit:
 	return
 }
 
-func (p *implParser) tryParseAssignInstruction(varn string, block ast.BlockStatement) bool {
+func (p *implParser) tryParseAssignStatement(varn string, block ast.BlockStatement) bool {
 	switch p.cTok {
 	case token.ASSIGN:
 		if p.nTok == token.AT || p.nTok == token.HASH {
@@ -512,12 +512,40 @@ func (p *implParser) parseBinaryExpr(priority int) (x ast.Expr) {
 		if oprec < priority {
 			return
 		}
-		offs := p.cOffs
-		y := p.parseBinaryExpr(oprec + 1)
-		if !p.ignore {
-			x = ast.NewBinaryExpr(offs, p.s.file, op, x, y)
+		// special case for ternary and fallback expression
+		if op == token.QES {
+			// ternary case or short if
+			x = p.parseTernaryExpr(x)
+		} else if op == token.DQES {
+			// fallback expression
+			x = p.parseFallbackExpr(x)
+		} else {
+			offs := p.cOffs
+			y := p.parseBinaryExpr(oprec + 1)
+			if !p.ignore {
+				x = ast.NewBinaryExpr(offs, p.s.file, op, x, y)
+			}
 		}
 	}
+}
+
+func (p *implParser) parseTernaryExpr(cond ast.Expr) (x ast.Expr) {
+	offs := p.cOffs
+	t := p.parseBinaryExpr(token.LowestPrec + 1)
+	if p.cTok == token.COLON {
+		f := p.parseBinaryExpr(token.LowestPrec + 1)
+		x = ast.NewTernaryExpr(offs, p.s.file, cond, t, f)
+	} else {
+		p.errorHandler(p.cOffs, p.s.file, fmt.Sprintf("expect : but got %s", p.cLit))
+		p.next()
+	}
+	return
+}
+
+func (p *implParser) parseFallbackExpr(primary ast.Expr) (x ast.Expr) {
+	offs := p.cOffs
+	fx := p.parseBinaryExpr(token.LowestPrec + 1)
+	return ast.NewFallbackExpr(offs, p.s.file, primary, fx)
 }
 
 func (p *implParser) parseUnaryExpr() (x ast.Expr) {
@@ -586,7 +614,6 @@ func (p *implParser) parseOperand() (x ast.Expr) {
 
 	case token.LPAREN:
 		lparen := p.cOffs
-		p.next()
 		inx := p.parseBinaryExpr(token.LowestPrec + 1) // types may be parenthesized: (some type)
 		if p.expect(token.RPAREN) != -1 {
 			if !p.ignore {

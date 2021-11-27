@@ -76,6 +76,14 @@ func TestOperandParser(t *testing.T) {
 }
 
 var stmtTestCase = []*inout{
+	{in: "V = A ?? B", so: "\nV = A ?? B\n"},
+	{in: "V = A + 1 * C ?? 1 + 2 * B", so: "\nV = (A+(1*C)) ?? (1+(2*B))\n"},
+	{in: "V = A ?? B ?? C ?? D", so: "\nV = A ?? B ?? C ?? D\n"},
+	{in: "V = A ? 123 : B", so: "\nV = A ? 123 : B\n"},
+	{in: "V = A ? 123 : B ? 321 : C", so: "\nV = A ? 123 : B ? 321 : C\n"},
+	{in: "V = A ? 123 : B + 123 * 2", so: "\nV = A ? 123 : (B+(123*2))\n"},
+	{in: "V = A ? 123 + C * 2 : B + 123 * 2", so: "\nV = A ? (123+(C*2)) : (B+(123*2))\n"},
+	{in: "V = (A ? 123 : B) + 1", so: "\nV = ((A ? 123 : B)+1)\n"},
 	{in: "VAR = \"Sample ${A[1]} text\"", so: "\nVAR = \"Sample ${A[1]} text\"\n"},
 	{in: "VAR = sizeof A", so: "\nVAR = sizeof A\n"},
 	{in: "VAR = 123", so: "\nVAR = 123\n"},

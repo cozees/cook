@@ -34,6 +34,19 @@ type (
 		Name string
 	}
 
+	Conditional struct {
+		*baseExpr
+		Cond  Expr
+		True  Expr
+		False Expr
+	}
+
+	Fallback struct {
+		*baseExpr
+		Primary   Expr
+		Secondary Expr
+	}
+
 	SizeOf struct {
 		*baseExpr
 		X Expr
@@ -118,6 +131,57 @@ func (i *Ident) evaluate(ctx cookContext) (v interface{}, vk reflect.Kind) {
 }
 
 func (i *Ident) String() string { return i.Name }
+
+func NewTernaryExpr(offs int, f *token.File, cond, T, F Expr) Expr {
+	return &Conditional{
+		baseExpr: BaseExpr(offs, f),
+		Cond:     cond,
+		True:     T,
+		False:    F,
+	}
+}
+
+func (c *Conditional) evaluate(ctx cookContext) (v interface{}, vk reflect.Kind) {
+	ctx.position(c.baseExpr)
+	a, ak := c.Cond.evaluate(ctx)
+	if ak != reflect.Bool {
+		ctx.onError(fmt.Errorf("%s does not produce boolean value", c.Cond.String()))
+		return
+	}
+	if a.(bool) {
+		return c.True.evaluate(ctx)
+	} else {
+		return c.False.evaluate(ctx)
+	}
+}
+
+func (c *Conditional) String() string {
+	return c.Cond.String() + " ? " + c.True.String() + " : " + c.False.String()
+}
+
+func NewFallbackExpr(offs int, f *token.File, primary, secondary Expr) Expr {
+	return &Fallback{
+		baseExpr:  BaseExpr(offs, f),
+		Primary:   primary,
+		Secondary: secondary,
+	}
+}
+
+func (fn *Fallback) evaluate(ctx cookContext) (v interface{}, vk reflect.Kind) {
+	ctx.position(fn.baseExpr)
+	ctx.recordFailure()
+	v, vk = fn.Primary.evaluate(ctx)
+	// ensure that flag record failure is alway reset to false
+	isFaile := ctx.hasFailure()
+	if (vk == reflect.Invalid && isFaile) || (v == nil && !ctx.hasCanceled()) {
+		v, vk = fn.Secondary.evaluate(ctx)
+	}
+	return
+}
+
+func (fn *Fallback) String() string {
+	return fn.Primary.String() + " ?? " + fn.Secondary.String()
+}
 
 func NewSizeOfExpr(offs int, f *token.File, x Expr) Expr {
 	return &SizeOf{

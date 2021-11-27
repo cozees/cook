@@ -196,6 +196,8 @@ revisit:
 			tok = token.AT
 		case '$':
 			tok = token.VAR
+		case '?':
+			tok = s.ternary(s.ch == '?', token.DQES, token.QES)
 		case '!':
 			tok = s.ternary(s.ch == '=', token.NEQ, token.NOT)
 		case '#':

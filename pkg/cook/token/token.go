@@ -71,6 +71,8 @@ const (
 	HASH  // #
 	LF    // \n, \r, \r\n : line feed
 	VAR   // $
+	QES   // ?
+	DQES  // ??
 	operator_end
 
 	keyword_beg
@@ -145,6 +147,8 @@ var tokens = [...]string{
 	AT:    "@",
 	HASH:  "#",
 	VAR:   "$",
+	QES:   "?",
+	DQES:  "??",
 	LF:    "\n",
 
 	IF:       "if",
@@ -219,7 +223,7 @@ func (op Token) Precedence() int {
 		return 1
 	case LAND:
 		return 2
-	case EQL, NEQ, LSS, LEQ, GTR, GEQ:
+	case EQL, NEQ, LSS, LEQ, GTR, GEQ, QES, DQES:
 		return 3
 	case ADD, SUB, OR, XOR:
 		return 4

@@ -32,6 +32,8 @@ func NewTarget(name string) Target {
 }
 
 // cookContext
+func (it *implTarget) recordFailure()                            { it.ctx.recordFailure() }
+func (it *implTarget) hasFailure() bool                          { return it.ctx.hasFailure() }
 func (it *implTarget) addScope() map[string]interface{}          { return it.ctx.addScope() }
 func (it *implTarget) popScope()                                 { it.ctx.popScope() }
 func (it *implTarget) getTarget(name string) Target              { return it.ctx.getTarget(name) }

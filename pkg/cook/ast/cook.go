@@ -28,6 +28,11 @@ type cookContext interface {
 	position(be *baseExpr)
 	onError(err error)
 	hasCanceled() bool
+
+	// tell context to record the error instead of printing out
+	// and ignore it so no cancel is occurred
+	recordFailure()
+	hasFailure() bool
 }
 
 type forCookContext interface {
@@ -59,6 +64,10 @@ type implCookProgram struct {
 	targetsByName map[string]int
 	isCanceled    bool
 	curBaseExpr   *baseExpr
+
+	// record last error
+	lastError   error
+	recordError bool
 }
 
 func NewCookProgram() CookProgram {
@@ -67,6 +76,15 @@ func NewCookProgram() CookProgram {
 		gvar:          make(map[string]interface{}),
 		targetsByName: make(map[string]int),
 	}
+}
+
+func (icp *implCookProgram) recordFailure() { icp.recordError = true }
+func (icp *implCookProgram) hasFailure() bool {
+	defer func() {
+		icp.recordError = false
+		icp.lastError = nil
+	}()
+	return icp.lastError != nil
 }
 
 func (icp *implCookProgram) addScope() map[string]interface{} {
@@ -125,9 +143,12 @@ func (icp *implCookProgram) hasCanceled() bool     { return icp.isCanceled }
 func (icp *implCookProgram) position(be *baseExpr) { icp.curBaseExpr = be }
 
 func (icp *implCookProgram) onError(err error) {
-	// TODO: print message
-	fmt.Fprintf(os.Stderr, "%s %s\n", icp.curBaseExpr.PosInfo(), err.Error())
-	icp.isCanceled = true
+	if icp.recordError {
+		icp.lastError = err
+	} else {
+		fmt.Fprintf(os.Stderr, "%s %s\n", icp.curBaseExpr.PosInfo(), err.Error())
+		icp.isCanceled = true
+	}
 }
 
 func (icp *implCookProgram) AddTarget(name string) (Target, error) {
