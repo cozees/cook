@@ -58,7 +58,7 @@ func TestCookProgram(t *testing.T) {
 	p := parser.NewParser()
 	cook, err := p.Parse("testdata/Cookfile")
 	require.NoError(t, err)
-	args := make(map[string]string)
+	args := make(map[string]interface{})
 	for _, tc := range cases {
 		args[tc.vname] = tc.name
 	}

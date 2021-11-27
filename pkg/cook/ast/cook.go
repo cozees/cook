@@ -46,8 +46,8 @@ type forCookContext interface {
 type CookProgram interface {
 	BlockStatement
 	AddTarget(name string) (Target, error)
-	Execute(args map[string]string)
-	ExecuteWithTarget(name []string, args map[string]string)
+	Execute(args map[string]interface{})
+	ExecuteWithTarget(name []string, args map[string]interface{})
 }
 
 type implCookProgram struct {
@@ -140,7 +140,7 @@ func (icp *implCookProgram) AddTarget(name string) (Target, error) {
 	return nil, fmt.Errorf("target %s is already existed", name)
 }
 
-func (icp *implCookProgram) Execute(args map[string]string) {
+func (icp *implCookProgram) Execute(args map[string]interface{}) {
 	if icp.getTarget("all") == nil {
 		icp.onError(fmt.Errorf("missing target or all target is not defined"))
 		return
@@ -148,10 +148,9 @@ func (icp *implCookProgram) Execute(args map[string]string) {
 	icp.ExecuteWithTarget([]string{"all"}, args)
 }
 
-func (icp *implCookProgram) ExecuteWithTarget(names []string, args map[string]string) {
+func (icp *implCookProgram) ExecuteWithTarget(names []string, args map[string]interface{}) {
 	// add argument to global variable with suffix g
 	for name, value := range args {
-
 		icp.gvar[name] = value
 	}
 	// execute any instruction before execute target
