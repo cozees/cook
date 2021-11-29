@@ -178,11 +178,16 @@ revisit:
 	case isLetter(ch):
 		lit = s.scanIdentifier()
 		tok = token.Lookup(lit)
-		switch tok {
-		case token.IDENT, token.BREAK, token.CONTINUE:
+		if lit == "true" || lit == "false" {
+			tok = token.BOOLEAN
 			skipLineFeed = false
-		default:
-			skipLineFeed = tok.Type() == 0
+		} else {
+			switch tok {
+			case token.IDENT, token.BREAK, token.CONTINUE:
+				skipLineFeed = false
+			default:
+				skipLineFeed = tok.Type() == 0
+			}
 		}
 	case isDecimal(ch):
 		tok, lit = s.scanNumber()

@@ -28,7 +28,7 @@ type cookContext interface {
 	// tell context to record the error instead of printing out
 	// and ignore it so no cancel is occurred
 	recordFailure()
-	hasFailure() bool
+	hasFailure(reset bool) bool
 
 	restrictVariable(name string, kind reflect.Kind)
 }
@@ -57,11 +57,13 @@ func (icp *implContext) restrictVariable(name string, kind reflect.Kind) {
 }
 
 func (icp *implContext) recordFailure() { icp.recordError = true }
-func (icp *implContext) hasFailure() bool {
-	defer func() {
-		icp.recordError = false
-		icp.lastError = nil
-	}()
+func (icp *implContext) hasFailure(reset bool) bool {
+	if reset {
+		defer func() {
+			icp.recordError = false
+			icp.lastError = nil
+		}()
+	}
 	return icp.lastError != nil
 }
 

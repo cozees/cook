@@ -66,7 +66,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, err.Error())
 	}
 	if len(targets) > 0 {
-		cook.ExecuteWithTarget(targets, args)
+		cook.ExecuteWithTarget(args, targets...)
 	} else {
 		cook.Execute(args)
 	}

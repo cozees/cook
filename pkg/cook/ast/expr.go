@@ -192,7 +192,7 @@ func (fn *Fallback) evaluate(ctx cookContext) (v interface{}, vk reflect.Kind) {
 	ctx.recordFailure()
 	v, vk = fn.Primary.evaluate(ctx)
 	// ensure that flag record failure is alway reset to false
-	isFaile := ctx.hasFailure()
+	isFaile := ctx.hasFailure(true)
 	if (vk == reflect.Invalid && isFaile) || (v == nil && !ctx.hasCanceled()) {
 		v, vk = fn.Secondary.evaluate(ctx)
 	}

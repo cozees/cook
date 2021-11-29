@@ -160,40 +160,46 @@ func numOperator(ctx cookContext, op token.Token, vl, vr interface{}, vkl, vkr r
 
 numFloat:
 	fa, fb = convertToFloat(ctx, vl, vkl), convertToFloat(ctx, vr, vkr)
-	switch op {
-	case token.SUB:
-		return fa - fb, reflect.Float64
-	case token.MUL:
-		return fa * fb, reflect.Float64
-	case token.QUO:
-		return fa / fb, reflect.Float64
-	default:
-		panic("illegal state operation")
+	if !ctx.hasCanceled() && !ctx.hasFailure(false) {
+		switch op {
+		case token.SUB:
+			return fa - fb, reflect.Float64
+		case token.MUL:
+			return fa * fb, reflect.Float64
+		case token.QUO:
+			return fa / fb, reflect.Float64
+		default:
+			panic("illegal state operation")
+		}
 	}
+	return nil, reflect.Invalid
 numInt:
 	ia, ib = convertToInt(ctx, vl, vkl), convertToInt(ctx, vr, vkr)
-	switch op {
-	case token.SUB:
-		return ia - ib, reflect.Int64
-	case token.MUL:
-		return ia * ib, reflect.Int64
-	case token.QUO:
-		return ia / ib, reflect.Int64
-	case token.REM:
-		return ia % ib, reflect.Int64
-	case token.AND:
-		return ia & ib, reflect.Int64
-	case token.OR:
-		return ia | ib, reflect.Int64
-	case token.XOR:
-		return ia ^ ib, reflect.Int64
-	case token.SHL:
-		return ia << ib, reflect.Int64
-	case token.SHR:
-		return ia >> ib, reflect.Int64
-	default:
-		panic("illegal state operation")
+	if !ctx.hasCanceled() && !ctx.hasFailure(false) {
+		switch op {
+		case token.SUB:
+			return ia - ib, reflect.Int64
+		case token.MUL:
+			return ia * ib, reflect.Int64
+		case token.QUO:
+			return ia / ib, reflect.Int64
+		case token.REM:
+			return ia % ib, reflect.Int64
+		case token.AND:
+			return ia & ib, reflect.Int64
+		case token.OR:
+			return ia | ib, reflect.Int64
+		case token.XOR:
+			return ia ^ ib, reflect.Int64
+		case token.SHL:
+			return ia << ib, reflect.Int64
+		case token.SHR:
+			return ia >> ib, reflect.Int64
+		default:
+			panic("illegal state operation")
+		}
 	}
+	return nil, reflect.Invalid
 }
 
 func logicOperator(ctx cookContext, op token.Token, vl, vr interface{}, vkl, vkr reflect.Kind) (interface{}, reflect.Kind) {
