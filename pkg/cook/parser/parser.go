@@ -138,7 +138,7 @@ func (p *implParser) toBeginStatement() {
 			if p.nTok == token.AT || p.nTok == token.COLON {
 				return
 			}
-		case token.IF, token.FOR:
+		case token.IF, token.FOR, token.EXIT:
 			return
 		}
 		p.next()
@@ -188,6 +188,8 @@ func (p *implParser) parseProgram(f *token.File, cp ast.CookProgram) {
 			} else {
 				p.errorHandler(p.cOffs, f, fmt.Sprintf("invalid token %s", p.cTok))
 			}
+		case p.cTok == token.EXIT:
+			p.parseExitStatement(block)
 		case inTarget:
 			switch p.cTok {
 			case token.FOR:
@@ -211,6 +213,9 @@ func (p *implParser) parseProgram(f *token.File, cp ast.CookProgram) {
 					}
 				}
 			}
+		default:
+			// keep advancing if no match
+			p.toBeginStatement()
 		}
 	}
 }
@@ -241,6 +246,9 @@ func (p *implParser) parseSimpleStatement(block ast.BlockStatement) bool {
 				p.errorHandler(p.cOffs, p.s.file, fmt.Sprintf("invalid token %s", p.cTok))
 				return false
 			}
+		case token.EXIT:
+			p.parseExitStatement(block)
+			return true
 		case token.FOR:
 			p.parseForStatment(block)
 			return true
@@ -269,6 +277,19 @@ func (p *implParser) parseSimpleStatement(block ast.BlockStatement) bool {
 	}
 	p.next()
 	return true
+}
+
+func (p *implParser) parseExitStatement(block ast.BlockStatement) {
+	p.next()
+	if p.cTok == token.INTEGER {
+		offs, lit := p.cOffs, p.cLit
+		p.next()
+		if p.expect(token.LF) != -1 && !p.ignore {
+			block.AddStatement(ast.NewWrapExprStatement(ast.NewExitExpr(offs, p.s.file, lit)))
+		}
+	} else {
+		p.errorHandler(p.cOffs, p.s.file, "exit expected integer code")
+	}
 }
 
 func (p *implParser) tryParseTarget(name string, cook ast.CookProgram) (t ast.BlockStatement) {

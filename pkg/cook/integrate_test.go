@@ -68,7 +68,7 @@ var nestLoopTestCase = [][]interface{}{
 	},
 	{
 		[]interface{}{int64(5), int64(7), int64(32)},
-		[]interface{}{24.8,  int64(4), int64(40)},
+		[]interface{}{24.8, int64(4), int64(40)},
 		"85 28",
 	},
 }
@@ -110,7 +110,7 @@ func TestCookProgram(t *testing.T) {
 		args["LIST"] = tc[0]
 		args["LISTA"] = tc[1]
 		args["FILE1"] = nestedResult
-		cook.ExecuteWithTarget([]string{"sampleNestLoop"}, args)
+		cook.ExecuteWithTarget(args, "sampleNestLoop")
 		bo, err := ioutil.ReadFile(nestedResult)
 		assert.NoError(t, err)
 		assert.Equal(t, tc[2], string(bo))

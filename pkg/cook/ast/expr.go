@@ -67,6 +67,11 @@ type (
 		To reflect.Kind
 	}
 
+	Exit struct {
+		*baseExpr
+		Code string
+	}
+
 	ListLiteralExpr struct {
 		*baseExpr
 		Values []Expr
@@ -352,6 +357,25 @@ func (ctv *TypeCast) String() string {
 	}
 	return to + "(" + ctv.X.String() + ")"
 }
+
+func NewExitExpr(offs int, f *token.File, code string) Expr {
+	return &Exit{
+		baseExpr: BaseExpr(offs, f),
+		Code:     code,
+	}
+}
+
+func (e *Exit) evaluate(ctx cookContext) (v interface{}, vk reflect.Kind) {
+	i, err := strconv.ParseInt(e.Code, 10, 32)
+	if err != nil {
+		panic("exit code is not integer")
+	}
+	os.Exit(int(i))
+	// it does reach here anyway
+	return nil, reflect.Invalid
+}
+
+func (e *Exit) String() string { return "exit " + e.Code }
 
 func NewListLiteral(offs int, f *token.File, exprs []Expr) Expr {
 	return &ListLiteralExpr{

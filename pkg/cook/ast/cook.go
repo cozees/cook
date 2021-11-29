@@ -16,7 +16,7 @@ type CookProgram interface {
 	BlockStatement
 	AddTarget(name string) (Target, error)
 	Execute(args map[string]interface{})
-	ExecuteWithTarget(name []string, args map[string]interface{})
+	ExecuteWithTarget(args map[string]interface{}, names ...string)
 }
 
 type implCookProgram struct {
@@ -50,10 +50,10 @@ func (icp *implCookProgram) Execute(args map[string]interface{}) {
 		icp.onError(fmt.Errorf("missing target or all target is not defined"))
 		return
 	}
-	icp.ExecuteWithTarget([]string{"all"}, args)
+	icp.ExecuteWithTarget(args, "all")
 }
 
-func (icp *implCookProgram) ExecuteWithTarget(names []string, args map[string]interface{}) {
+func (icp *implCookProgram) ExecuteWithTarget(args map[string]interface{}, names ...string) {
 	// add argument to global variable with suffix g
 	for name, value := range args {
 		icp.gvar[name] = value

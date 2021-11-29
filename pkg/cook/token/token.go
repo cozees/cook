@@ -78,6 +78,7 @@ const (
 	keyword_beg
 	IF
 	ELSE
+	EXIT
 	IS
 	IN
 	FOR
@@ -164,6 +165,7 @@ var tokens = [...]string{
 
 	IF:       "if",
 	ELSE:     "else",
+	EXIT:     "exit",
 	IS:       "is",
 	IN:       "in",
 	FOR:      "for",

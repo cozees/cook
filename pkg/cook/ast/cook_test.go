@@ -41,7 +41,7 @@ func TestCookProgram(t *testing.T) {
 		Op:       token.MUL,
 		R:        &Ident{baseExpr: be, Name: "v1"},
 	}))
-	cook.ExecuteWithTarget([]string{"sample"}, nil)
+	cook.ExecuteWithTarget(nil, "sample")
 	icp := cook.(*implCookProgram)
 	v, vk, env := icp.getVariable("v1")
 	assert.Equal(t, false, env)
