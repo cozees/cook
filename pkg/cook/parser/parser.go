@@ -82,11 +82,19 @@ func (p *implParser) parseIncludeDirective(files token.Files, ms map[string]*Sca
 			if tok != token.STRING {
 				p.errorHandler(offs, p.s.file, "include token must be a string")
 			} else {
+				s := p.s
 				p.parseIncludeDirective(files, ms, filepath.Join(f.Dir(), lit))
+				p.s = s
+				offs, tok, _, _ = p.s.Scan()
+				if tok != token.LF {
+					n, l, c := p.s.file.Position(offs)
+					return fmt.Errorf("%s:%d:%d expect linefeed but go %s", n, l, c, tok)
+				}
 			}
 		} else {
 			// we already scan include directive therefore we don't need to scan it again.
 			p.s.reset(offs)
+			p.s = nil
 			return nil
 		}
 	}
