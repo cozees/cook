@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"reflect"
+	"strconv"
+	"strings"
 
 	"github.com/cozees/cook/pkg/cook/token"
 )
@@ -50,6 +52,19 @@ type (
 	SizeOf struct {
 		*baseExpr
 		X Expr
+	}
+
+	IsType struct {
+		*baseExpr
+		Var   Expr
+		Bit   int
+		Types []token.Token
+	}
+
+	TypeCast struct {
+		*baseExpr
+		X  Expr
+		To reflect.Kind
 	}
 
 	ListLiteralExpr struct {
@@ -207,6 +222,136 @@ func (so *SizeOf) evaluate(ctx cookContext) (v interface{}, vk reflect.Kind) {
 }
 
 func (so *SizeOf) String() string { return "sizeof " + so.X.String() }
+
+func NewIsTypeExpr(offs int, f *token.File, v Expr, ttok ...token.Token) Expr {
+	// bit indicator
+	// TINTEGER, TFLOAT, TSTRING, TBOOLEAN, TARRAY, TMAP, TOBJECT
+	// 1,		 2,		 3,		  4,		5,		6,	  7
+	// 000001  , 000010, 000011
+	bit := 0
+	for _, tok := range ttok {
+		bit |= tok.Type()
+	}
+	return &IsType{
+		baseExpr: BaseExpr(offs, f),
+		Var:      v,
+		Bit:      bit,
+		Types:    ttok,
+	}
+}
+
+func (it *IsType) evaluate(ctx cookContext) (v interface{}, vk reflect.Kind) {
+	ctx.position(it.baseExpr)
+	if bl, ok := it.Var.(*BasicLiteral); ok {
+		bit := bl.kind.Type()
+		v = it.Bit&bit == bit
+		vk = reflect.Bool
+	} else if _, ok = it.Var.(*Ident); ok {
+		var bit int
+		switch _, vk = it.Var.evaluate(ctx); vk {
+		case reflect.Int64:
+			bit = token.TINTEGER.Type()
+		case reflect.Float64:
+			bit = token.TFLOAT.Type()
+		case reflect.String:
+			bit = token.TSTRING.Type()
+		case reflect.Bool:
+			bit = token.TBOOLEAN.Type()
+		case reflect.Array, reflect.Slice:
+			bit = token.TARRAY.Type()
+		case reflect.Map:
+			bit = token.TMAP.Type()
+		default:
+			bit = token.TOBJECT.Type()
+		}
+		v = it.Bit&bit == bit
+		vk = reflect.Bool
+	} else {
+		ctx.onError(fmt.Errorf("%s must be a literal value or variable", it.Var.String()))
+	}
+	return
+}
+
+func (it *IsType) String() string {
+	buf := strings.Builder{}
+	for _, t := range it.Types {
+		buf.WriteString(" | ")
+		buf.WriteString(t.String())
+	}
+	return it.Var.String() + " is " + buf.String()[3:]
+}
+
+func NewTypeCastExpr(offs int, f *token.File, x Expr, to reflect.Kind) Expr {
+	return &TypeCast{
+		baseExpr: BaseExpr(offs, f),
+		X:        x,
+		To:       to,
+	}
+}
+
+func (ctv *TypeCast) evaluate(ctx cookContext) (v interface{}, vk reflect.Kind) {
+	ctx.position(ctv.baseExpr)
+	iv, ik := ctv.X.evaluate(ctx)
+	if ctv.To != ik {
+		var err error
+		switch ctv.To {
+		case reflect.Int64:
+			if ik == reflect.Float64 {
+				return int64(iv.(float64)), ctv.To
+			} else if vk == reflect.String {
+				if v, err = strconv.ParseInt(iv.(string), 10, 64); err == nil {
+					vk = ctv.To
+					return
+				}
+			}
+		case reflect.Float64:
+			if ik == reflect.Int64 {
+				return float64(iv.(int64)), ctv.To
+			} else if ik == reflect.String {
+				if v, err = strconv.ParseFloat(iv.(string), 64); err == nil {
+					vk = ctv.To
+					return
+				}
+			}
+		case reflect.Bool:
+			if ik == reflect.String {
+				if v, err = strconv.ParseBool(iv.(string)); err == nil {
+					vk = ctv.To
+					return
+				}
+			}
+		case reflect.String:
+			if ik == reflect.Int64 {
+				return strconv.FormatInt(iv.(int64), 10), ctv.To
+			} else if ik == reflect.Float64 {
+				return strconv.FormatFloat(iv.(float64), 'g', -1, 64), ctv.To
+			} else if ik == reflect.Bool {
+				return strconv.FormatBool(iv.(bool)), ctv.To
+			}
+		}
+		ctx.onError(fmt.Errorf("cannot cast %v to type %s", iv, ctv.To))
+	} else {
+		v, vk = iv, ik
+	}
+	return
+}
+
+func (ctv *TypeCast) String() string {
+	to := ""
+	switch ctv.To {
+	case reflect.Int64:
+		to = token.TINTEGER.String()
+	case reflect.Float64:
+		to = token.TFLOAT.String()
+	case reflect.String:
+		to = token.TSTRING.String()
+	case reflect.Bool:
+		to = token.TBOOLEAN.String()
+	default:
+		panic("illegal state parser")
+	}
+	return to + "(" + ctv.X.String() + ")"
+}
 
 func NewListLiteral(offs int, f *token.File, exprs []Expr) Expr {
 	return &ListLiteralExpr{

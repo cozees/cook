@@ -76,6 +76,10 @@ func TestOperandParser(t *testing.T) {
 }
 
 var stmtTestCase = []*inout{
+	{in: "V = integer(A)", so: "\nV = integer(A)\n"},
+	{in: "V = float(\"124.2\")", so: "\nV = float(\"124.2\")\n"},
+	{in: "V = A is integer", so: "\nV = A is integer\n"},
+	{in: "V = A is integer | float | string", so: "\nV = A is integer | float | string\n"},
 	{in: "V = A ?? B", so: "\nV = A ?? B\n"},
 	{in: "V = A + 1 * C ?? 1 + 2 * B", so: "\nV = (A+(1*C)) ?? (1+(2*B))\n"},
 	{in: "V = A ?? B ?? C ?? D", so: "\nV = A ?? B ?? C ?? D\n"},

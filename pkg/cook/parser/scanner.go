@@ -181,6 +181,8 @@ revisit:
 		switch tok {
 		case token.IDENT, token.BREAK, token.CONTINUE:
 			skipLineFeed = false
+		default:
+			skipLineFeed = tok.Type() == 0
 		}
 	case isDecimal(ch):
 		tok, lit = s.scanNumber()

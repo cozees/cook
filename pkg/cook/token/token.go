@@ -78,6 +78,7 @@ const (
 	keyword_beg
 	IF
 	ELSE
+	IS
 	IN
 	FOR
 	RANGE
@@ -85,6 +86,16 @@ const (
 	CONTINUE
 	BREAK
 	INCLUDE
+	// type keyword
+	keyword_type_beg
+	TINTEGER
+	TFLOAT
+	TSTRING
+	TBOOLEAN
+	TARRAY
+	TMAP
+	TOBJECT
+	keyword_type_end
 	keyword_end
 )
 
@@ -153,6 +164,7 @@ var tokens = [...]string{
 
 	IF:       "if",
 	ELSE:     "else",
+	IS:       "is",
 	IN:       "in",
 	FOR:      "for",
 	RANGE:    "range",
@@ -160,6 +172,14 @@ var tokens = [...]string{
 	CONTINUE: "continue",
 	BREAK:    "break",
 	INCLUDE:  "include",
+
+	TINTEGER: "integer",
+	TFLOAT:   "float",
+	TSTRING:  "string",
+	TBOOLEAN: "boolean",
+	TARRAY:   "array",
+	TMAP:     "map",
+	TOBJECT:  "object",
 }
 
 func (tok Token) String() string {
@@ -178,7 +198,9 @@ var keywords map[string]Token
 func init() {
 	keywords = make(map[string]Token)
 	for i := keyword_beg + 1; i < keyword_end; i++ {
-		keywords[tokens[i]] = i
+		if i != keyword_type_beg && i != keyword_type_end { // skip mark of type keyword
+			keywords[tokens[i]] = i
+		}
 	}
 }
 
@@ -211,6 +233,13 @@ func (tok Token) IsOperator() bool {
 
 func (tok Token) IsKeyword() bool { return keyword_beg < tok && tok < keyword_end }
 
+func (tok Token) Type() int {
+	if keyword_type_beg < tok && tok < keyword_type_end {
+		return 1 << (int(tok-keyword_type_beg) - 1)
+	}
+	return 0
+}
+
 const (
 	LowestPrec  = 0 // non-operators
 	UnaryPrec   = 6
@@ -223,7 +252,7 @@ func (op Token) Precedence() int {
 		return 1
 	case LAND:
 		return 2
-	case EQL, NEQ, LSS, LEQ, GTR, GEQ, QES, DQES:
+	case EQL, NEQ, LSS, LEQ, GTR, GEQ, QES, DQES, IS:
 		return 3
 	case ADD, SUB, OR, XOR:
 		return 4

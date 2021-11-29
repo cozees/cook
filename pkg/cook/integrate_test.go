@@ -42,10 +42,42 @@ finalize executed
 	},
 }
 
+const nestedResult = "nasted-result.txt"
+
+// 0: LIST, 1: MAP, 2: result
+var nestLoopTestCase = [][]interface{}{
+	{
+		[]interface{}{int64(1), int64(2), int64(3)},
+		[]interface{}{int64(1), int64(2), 1.3},
+		"392 32",
+	},
+	{
+		[]interface{}{int64(11), int64(4), int64(9)},
+		[]interface{}{22.4, int64(2), 1.3},
+		"108 33",
+	},
+	{
+		[]interface{}{int64(11), int64(5), int64(12)},
+		[]interface{}{true, false, 1.3},
+		"348 34",
+	},
+	{
+		[]interface{}{int64(9), int64(15), int64(122)},
+		[]interface{}{1.3, int64(40), false},
+		"192 34",
+	},
+	{
+		[]interface{}{int64(5), int64(7), int64(32)},
+		[]interface{}{24.8,  int64(4), int64(40)},
+		"85 28",
+	},
+}
+
 func cleanup() {
 	for _, tc := range cases {
 		os.Remove(tc.name)
 	}
+	os.Remove(nestedResult)
 }
 
 func TestMain(m *testing.M) {
@@ -59,6 +91,7 @@ func TestCookProgram(t *testing.T) {
 	cook, err := p.Parse("testdata/Cookfile")
 	require.NoError(t, err)
 	args := make(map[string]interface{})
+	args["TEST_NEST_LOOP"] = false
 	for _, tc := range cases {
 		args[tc.vname] = tc.name
 	}
@@ -68,5 +101,18 @@ func TestCookProgram(t *testing.T) {
 		bo, err := ioutil.ReadFile(tc.name)
 		assert.NoError(t, err)
 		assert.Equal(t, tc.output, string(bo))
+	}
+
+	// test nested loop
+	args["TEST_NEST_LOOP"] = true
+	for i, tc := range nestLoopTestCase {
+		t.Logf("TestCookProgram Nested Loop case #%d", i+1)
+		args["LIST"] = tc[0]
+		args["LISTA"] = tc[1]
+		args["FILE1"] = nestedResult
+		cook.ExecuteWithTarget([]string{"sampleNestLoop"}, args)
+		bo, err := ioutil.ReadFile(nestedResult)
+		assert.NoError(t, err)
+		assert.Equal(t, tc[2], string(bo))
 	}
 }

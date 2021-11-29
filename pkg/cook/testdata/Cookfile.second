@@ -1,0 +1,42 @@
+
+sampleNestLoop:
+    if TEST_NEST_LOOP {
+        a11 = 0
+        b22 = 0
+        for@out1 i in 1..200 {
+            if i < 100 {
+                a11 += 1
+                for@middle1 iv, v in LIST {
+                    if v > 10 {
+                        i += iv
+                    } else {
+                        a11 += 2
+                        for imv, mv in LISTA {
+                            if mv is integer | float {
+                                if mv > 30 {
+                                    continue @middle1
+                                }
+                                i += integer(mv)
+                                a11 += 4
+                            } else {
+                                // break current loop and middle
+                                // and continue execute immediately at out1 loop
+                                continue @out1
+                            }
+                        }
+                    }
+                }
+            } else {
+                b22++
+                i += 2
+                if i % 3 == 2 {
+                    a11++
+                    i++
+                } else {
+                    a11 += 2
+                    i--
+                }
+            }
+        }
+        @print -e -n $a11 $b22 > $FILE1
+    }

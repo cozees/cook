@@ -9,43 +9,7 @@ import (
 	"strings"
 
 	"github.com/cozees/cook/pkg/cook/token"
-	"github.com/cozees/cook/pkg/runtime/function"
 )
-
-type cookContext interface {
-	// add local scope for the tail of scope list.
-	addScope() map[string]interface{}
-	// remove last scope from the list
-	popScope()
-
-	getTargets() []Target
-	getTarget(name string) Target
-	getFunction(name string) function.Function
-
-	getVariable(name string) (value interface{}, kind reflect.Kind, fromEnv bool)
-	setVariable(name string, val interface{})
-
-	position(be *baseExpr)
-	onError(err error)
-	hasCanceled() bool
-
-	// tell context to record the error instead of printing out
-	// and ignore it so no cancel is occurred
-	recordFailure()
-	hasFailure() bool
-}
-
-type forCookContext interface {
-	cookContext
-	breakWith(id string) error
-	continueWith(id string) error
-	breakAt() int
-	continueAt() int
-	shouldBreakingOf(index int) bool
-	shouldContinueOf(index int) bool
-	register(id string) (index int)
-	unregister(index int)
-}
 
 //
 type CookProgram interface {
@@ -57,97 +21,17 @@ type CookProgram interface {
 
 type implCookProgram struct {
 	*implBlock
-
-	locals        []map[string]interface{}
-	gvar          map[string]interface{}
-	targets       []Target
-	targetsByName map[string]int
-	isCanceled    bool
-	curBaseExpr   *baseExpr
-
-	// record last error
-	lastError   error
-	recordError bool
+	*implContext
 }
 
 func NewCookProgram() CookProgram {
 	return &implCookProgram{
-		implBlock:     &implBlock{},
-		gvar:          make(map[string]interface{}),
-		targetsByName: make(map[string]int),
-	}
-}
-
-func (icp *implCookProgram) recordFailure() { icp.recordError = true }
-func (icp *implCookProgram) hasFailure() bool {
-	defer func() {
-		icp.recordError = false
-		icp.lastError = nil
-	}()
-	return icp.lastError != nil
-}
-
-func (icp *implCookProgram) addScope() map[string]interface{} {
-	store := make(map[string]interface{})
-	icp.locals = append(icp.locals, store)
-	return store
-}
-
-func (icp *implCookProgram) popScope()            { icp.locals = icp.locals[0 : len(icp.locals)-1] }
-func (icp *implCookProgram) getTargets() []Target { return icp.targets }
-
-func (icp *implCookProgram) getTarget(name string) Target {
-	if index, ok := icp.targetsByName[name]; !ok {
-		return nil
-	} else {
-		return icp.targets[index]
-	}
-}
-
-func (icp *implCookProgram) getFunction(name string) function.Function {
-	return function.GetFunction(name)
-}
-
-func (icp *implCookProgram) getVariable(name string) (value interface{}, kind reflect.Kind, fromEnv bool) {
-	for i := len(icp.locals) - 1; i >= 0; i-- {
-		if v, ok := icp.locals[i][name]; ok {
-			value, kind, fromEnv = v, reflect.ValueOf(v).Kind(), false
-			return
-		}
-	}
-	if v, ok := icp.gvar[name]; ok {
-		value, kind, fromEnv = v, reflect.ValueOf(v).Kind(), false
-	} else if v := os.Getenv(name); v != "" {
-		value, kind, fromEnv = v, reflect.String, true
-	}
-	return
-}
-
-func (icp *implCookProgram) setVariable(name string, val interface{}) {
-	last := len(icp.locals) - 1
-	for i := last; i >= 0; i-- {
-		if _, ok := icp.locals[i][name]; ok {
-			icp.locals[i][name] = val
-			return
-		}
-	}
-	// if exist in global replace the value otherwise create in local scope only.
-	if _, ok := icp.gvar[name]; ok || last < 0 {
-		icp.gvar[name] = val
-	} else {
-		icp.locals[last][name] = val
-	}
-}
-
-func (icp *implCookProgram) hasCanceled() bool     { return icp.isCanceled }
-func (icp *implCookProgram) position(be *baseExpr) { icp.curBaseExpr = be }
-
-func (icp *implCookProgram) onError(err error) {
-	if icp.recordError {
-		icp.lastError = err
-	} else {
-		fmt.Fprintf(os.Stderr, "%s %s\n", icp.curBaseExpr.PosInfo(), err.Error())
-		icp.isCanceled = true
+		implBlock: &implBlock{},
+		implContext: &implContext{
+			gvar:          make(map[string]interface{}),
+			targetsByName: make(map[string]int),
+			restrictVar:   make(map[string]reflect.Kind),
+		},
 	}
 }
 
@@ -176,18 +60,18 @@ func (icp *implCookProgram) ExecuteWithTarget(names []string, args map[string]in
 	}
 	// execute any instruction before execute target
 	// this instruction is defined before any target
-	if icp.evaluate(icp); icp.hasCanceled() {
+	if icp.evaluate(icp.implContext); icp.hasCanceled() {
 		return
 	}
 	// execute initialize target if defined
 	if tg := icp.getTarget("initialize"); tg != nil {
-		tg.run(icp, nil)
+		tg.run(icp.implContext, nil)
 	}
 	// execute finalize target if defined
 	if tg := icp.getTarget("finalize"); tg != nil {
 		defer func() {
 			recover()
-			tg.run(icp, nil)
+			tg.run(icp.implContext, nil)
 		}()
 	}
 	// execute target by name
@@ -196,7 +80,7 @@ func (icp *implCookProgram) ExecuteWithTarget(names []string, args map[string]in
 			continue
 		}
 		if tg := icp.getTarget(tgName); tg != nil {
-			if tg.run(icp, nil); icp.hasCanceled() {
+			if tg.run(icp.implContext, nil); icp.hasCanceled() {
 				return
 			}
 			if tgName == "all" {
@@ -252,6 +136,12 @@ func (ib *implBlock) evaluate(ctx cookContext) {
 			return
 		}
 		ins.evaluate(ctx)
+		if fcc, ok := ctx.(*implForContext); ok {
+			if fcc.shouldBreak(fcc.currentLoop()) {
+				break
+			}
+			fcc.reset()
+		}
 	}
 }
 
@@ -302,7 +192,9 @@ func (ai *assingStatement) evaluate(ctx cookContext) {
 		i, ik := ai.value.evaluate(ctx)
 		switch {
 		case ai.op == token.ASSIGN:
-			ctx.setVariable(ai.variable, i)
+			if err := ctx.setVariable(ai.variable, i); err != nil {
+				ctx.onError(err)
+			}
 		default:
 			v, vk, _ := ctx.getVariable(ai.variable)
 			if v == nil {
@@ -311,10 +203,14 @@ func (ai *assingStatement) evaluate(ctx cookContext) {
 				switch ai.op {
 				case token.ADD_ASSIGN:
 					sum, _ := addOperator(ctx, v, i, vk, ik)
-					ctx.setVariable(ai.variable, sum)
+					if err := ctx.setVariable(ai.variable, sum); err != nil {
+						ctx.onError(err)
+					}
 				case token.SUB_ASSIGN, token.MUL_ASSIGN, token.QUO_ASSIGN, token.REM_ASSIGN:
 					r, _ := numOperator(ctx, ai.op-5, v, i, vk, ik)
-					ctx.setVariable(ai.variable, r)
+					if err := ctx.setVariable(ai.variable, r); err != nil {
+						ctx.onError(err)
+					}
 				default:
 					panic("illegal state parser. Parser should verify the permitted operator already")
 				}
@@ -360,6 +256,8 @@ func (ats *redirectToStatement) evaluate(ctx cookContext) {
 					flag := os.O_CREATE | os.O_WRONLY
 					if ats.IsAppend {
 						flag |= os.O_APPEND
+					} else {
+						flag |= os.O_TRUNC
 					}
 					f, err := os.OpenFile(fpath, flag, 0700)
 					if err != nil {
@@ -369,7 +267,7 @@ func (ats *redirectToStatement) evaluate(ctx cookContext) {
 					return f
 				}
 			}
-			// create reader
+			// create writer
 			for _, f := range ats.Files {
 				fp, k := f.evaluate(ctx)
 				if k == reflect.Array {
@@ -454,15 +352,16 @@ func NewForLMStatement(label string, i1, i2 Expr, opr Expr) BlockStatement {
 	}
 }
 
-func (ib *implBlock) blockEvaluate(index int, ctx forCookContext) {
-	for _, ins := range ib.statements {
+func (fs *ForStatement) blockEvaluate(index int, ctx forCookContext) {
+	for _, ins := range fs.statements {
 		if ctx.hasCanceled() {
 			return
 		}
 		ins.evaluate(ctx)
-		if ctx.shouldBreakingOf(index) || ctx.shouldContinueOf(index) {
+		if ctx.shouldBreak(index) {
 			return
 		}
+		ctx.reset()
 	}
 }
 
@@ -482,7 +381,7 @@ func (fs *ForStatement) evaluate(ctx cookContext) {
 	// Opr is array or map
 	eval := func(ctx forCookContext) bool {
 		fs.blockEvaluate(forInd, ctx)
-		return ctx.shouldBreakingOf(forInd)
+		return ctx.shouldBreak(forInd)
 	}
 	if fs.Opr != nil {
 		i1 := fs.I1.(*Ident).Name
@@ -493,6 +392,8 @@ func (fs *ForStatement) evaluate(ctx cookContext) {
 		v, vk := fs.Opr.evaluate(ctx)
 		switch vk {
 		case reflect.Array, reflect.Slice:
+			fcc.enterLoop(forInd)
+			defer fcc.exitLoop(forInd)
 			for i, iv := range v.([]interface{}) {
 				localCtx[i1] = int64(i)
 				if i2 != "" {
@@ -501,8 +402,11 @@ func (fs *ForStatement) evaluate(ctx cookContext) {
 				if eval(fcc) {
 					break
 				}
+				fcc.reset()
 			}
 		case reflect.Map:
+			fcc.enterLoop(forInd)
+			defer fcc.exitLoop(forInd)
 			for k, kv := range v.(map[interface{}]interface{}) {
 				localCtx[i1] = k
 				if i2 != "" {
@@ -511,6 +415,7 @@ func (fs *ForStatement) evaluate(ctx cookContext) {
 				if eval(fcc) {
 					break
 				}
+				fcc.reset()
 			}
 		default:
 			ctx.onError(fmt.Errorf("cannot loop value %v only map or list is allowed", v))
@@ -523,22 +428,44 @@ func (fs *ForStatement) evaluate(ctx cookContext) {
 		}
 		i := fs.I1.(*Ident).Name
 		i1, i2 := l.(int64), g.(int64)
+		ctx.restrictVariable(i, reflect.Int64)
+		defer ctx.restrictVariable(i, reflect.Invalid)
+		fnb := func(ind int64) (int64, bool) {
+			localCtx[i] = ind
+			if eval(fcc) {
+				return ind, true
+			}
+			fcc.reset()
+			if localCtx[i] != ind {
+				if ii, ok := localCtx[i].(int64); ok {
+					return ii, false
+				} else {
+					ctx.position(fs.I1.(*Ident).baseExpr)
+					ctx.onError(fmt.Errorf("modify index variable \"%s\" must maintain it type integer", fs.I1.String()))
+					return 0, true
+				}
+			}
+			return ind, false
+		}
+		notOk := false
+		fcc.enterLoop(forInd)
+		defer fcc.exitLoop(forInd)
 		if i1 > i2 {
 			for ind := i1; ind >= i2; ind-- {
-				localCtx[i] = ind
-				if eval(fcc) {
+				if ind, notOk = fnb(ind); notOk {
 					break
 				}
 			}
 		} else {
 			for ind := i1; ind <= i2; ind++ {
-				localCtx[i] = ind
-				if eval(fcc) {
+				if ind, notOk = fnb(ind); notOk {
 					break
 				}
 			}
 		}
 	} else { // loop until break or continue target specified
+		fcc.enterLoop(forInd)
+		defer fcc.exitLoop(forInd)
 		for !eval(fcc) {
 		}
 	}

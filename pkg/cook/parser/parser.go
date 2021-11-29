@@ -3,6 +3,7 @@ package parser
 import (
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"runtime"
 
 	"github.com/cozees/cook/pkg/cook/ast"
@@ -390,6 +391,17 @@ func (p *implParser) parseInvocationExpr(canHasAssignTo bool) (redirectTo []ast.
 
 func (p *implParser) parseForStatment(block ast.BlockStatement) {
 	p.next()
+	label := ""
+	if p.cTok == token.AT {
+		// special case to reset track of token
+		p.s.prevTokens[0] = token.ILLEGAL
+		p.s.prevTokens[1] = token.ILLEGAL
+		p.next()
+		label = p.cLit
+		if p.expect(token.IDENT) == -1 {
+			return
+		}
+	}
 	offs, lit := p.cOffs, p.cLit
 	var ranges []ast.Expr
 	var fob ast.BlockStatement
@@ -419,7 +431,7 @@ func (p *implParser) parseForStatment(block ast.BlockStatement) {
 			if p.expect(token.LBRACE) != -1 {
 				i1 := ast.NewIdentExpr(offs, p.s.file, lit)
 				i2 := ast.NewIdentExpr(vOffs, p.s.file, vLit)
-				fob = ast.NewForLMStatement("", i1, i2, expr)
+				fob = ast.NewForLMStatement(label, i1, i2, expr)
 			}
 		case token.IN:
 			p.next()
@@ -436,7 +448,7 @@ func (p *implParser) parseForStatment(block ast.BlockStatement) {
 			if len(ranges) == 2 {
 				if p.expect(token.LBRACE) != -1 {
 					i1 := ast.NewIdentExpr(offs, p.s.file, lit)
-					fob = ast.NewForRangeStatement("", i1, ranges)
+					fob = ast.NewForRangeStatement(label, i1, ranges)
 				}
 			} else if p.expect(token.RANGE) != -1 {
 				goto readAgain
@@ -446,7 +458,7 @@ func (p *implParser) parseForStatment(block ast.BlockStatement) {
 		}
 	case token.LBRACE:
 		p.next()
-		fob = ast.NewForStatement("")
+		fob = ast.NewForStatement(label)
 	default:
 		goto invalidToken
 	}
@@ -512,13 +524,15 @@ func (p *implParser) parseBinaryExpr(priority int) (x ast.Expr) {
 		if oprec < priority {
 			return
 		}
-		// special case for ternary and fallback expression
+		// special case for is, ternary and fallback expression
 		if op == token.QES {
 			// ternary case or short if
 			x = p.parseTernaryExpr(x)
 		} else if op == token.DQES {
 			// fallback expression
 			x = p.parseFallbackExpr(x)
+		} else if op == token.IS {
+			x = p.parseIsExpr(x)
 		} else {
 			offs := p.cOffs
 			y := p.parseBinaryExpr(oprec + 1)
@@ -548,6 +562,26 @@ func (p *implParser) parseFallbackExpr(primary ast.Expr) (x ast.Expr) {
 	return ast.NewFallbackExpr(offs, p.s.file, primary, fx)
 }
 
+func (p *implParser) parseIsExpr(t ast.Expr) (x ast.Expr) {
+	offs := p.cOffs
+	p.next()
+	ttok := make([]token.Token, 0)
+	for {
+		if p.cTok.Type() > 0 {
+			ttok = append(ttok, p.cTok)
+		} else if p.cTok != token.OR {
+			break
+		}
+		p.next()
+	}
+	if len(ttok) == 0 {
+		p.errorHandler(offs, p.s.file, "invalid type check expression")
+	} else {
+		x = ast.NewIsTypeExpr(offs, p.s.file, t, ttok...)
+	}
+	return
+}
+
 func (p *implParser) parseUnaryExpr() (x ast.Expr) {
 	switch p.cTok {
 	case token.ADD, token.SUB, token.NOT, token.XOR:
@@ -571,8 +605,28 @@ func (p *implParser) parseUnaryExpr() (x ast.Expr) {
 		if p.expect(token.INTEGER) != -1 {
 			x = ast.NewIdentExpr(offs, p.s.file, lit)
 		}
+	case token.TINTEGER:
+		x = p.parseTypeCaseExpr(reflect.Int64)
+	case token.TFLOAT:
+		x = p.parseTypeCaseExpr(reflect.Float64)
+	case token.TSTRING:
+		x = p.parseTypeCaseExpr(reflect.String)
+	case token.TBOOLEAN:
+		x = p.parseTypeCaseExpr(reflect.Bool)
 	default:
 		x = p.parseOperand()
+	}
+	return
+}
+
+func (p *implParser) parseTypeCaseExpr(to reflect.Kind) (x ast.Expr) {
+	offs := p.cOffs
+	p.next()
+	if p.expect(token.LPAREN) != -1 {
+		y := p.parseOperand()
+		if p.expect(token.RPAREN) != -1 && !p.ignore {
+			x = ast.NewTypeCastExpr(offs, p.s.file, y, to)
+		}
 	}
 	return
 }
