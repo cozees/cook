@@ -1,0 +1,289 @@
+package args
+
+import (
+	"bytes"
+	"fmt"
+	"io"
+	"reflect"
+	"strings"
+
+	"golang.org/x/term"
+)
+
+type stage uint8
+
+const (
+	name stage = iota
+	usage
+	description
+	flag
+	example
+)
+
+var stageName = [...]string{
+	name:        "Name",
+	usage:       "Usage",
+	description: "Description",
+	flag:        "Flag",
+	example:     "Example",
+}
+
+func (s stage) String() string { return stageName[s] }
+
+type Builder interface {
+	io.Reader
+	Name(n, shortDesc string)
+	Usage(s string)
+	Description(s string)
+	Flag(flag []*Flag, t reflect.Type)
+	Example(s string)
+	String() string
+}
+
+func NewMarkdownBuilder() Builder { return &mdb{buf: bytes.NewBufferString("")} }
+
+type mdb struct {
+	buf   *bytes.Buffer
+	stage stage
+}
+
+func (b *mdb) ensureStage(s stage) {
+	if s != b.stage {
+		panic(fmt.Sprintf("required providing %s before %s", b.stage, s))
+	}
+}
+
+func (b *mdb) Read(p []byte) (n int, err error) { return b.buf.Read(p) }
+
+func (b *mdb) Name(n string, shortDesc string) {
+	b.ensureStage(name)
+	b.buf.WriteString("## @")
+	b.buf.WriteString(n)
+	b.buf.WriteByte('\n')
+	b.stage++
+}
+
+func (b *mdb) Usage(s string) {
+	b.ensureStage(usage)
+	b.buf.WriteString("\nUsage:\n")
+	b.buf.WriteString("```cook\n")
+	b.buf.WriteString(s)
+	b.buf.WriteString("\n```\n")
+	b.stage++
+}
+
+func (b *mdb) Description(s string) {
+	b.ensureStage(description)
+	b.buf.WriteByte('\n')
+	b.buf.WriteString(spaceOnly.Replace(strings.TrimSpace(s)))
+	b.buf.WriteByte('\n')
+	b.stage++
+}
+
+func (b *mdb) Flag(flags []*Flag, t reflect.Type) {
+	b.ensureStage(flag)
+	b.buf.WriteString("\n| Options/Flag | Default | Description |\n")
+	b.buf.WriteString("| --- | --- | --- |\n")
+	for _, fl := range flags {
+		b.buf.WriteString("| ")
+		if fl.Short != "" {
+			b.buf.WriteByte('-')
+			b.buf.WriteString(fl.Short)
+			b.buf.WriteString(", ")
+		}
+		b.buf.WriteString("--")
+		b.buf.WriteString(fl.Long)
+		// write default, require type from field defined in struct.
+		// a boolean does not required extra value
+		def := ""
+		if t.Kind() == reflect.Ptr {
+			t = t.Elem()
+		}
+	fieldLookup:
+		for i := 0; i < t.NumField(); i++ {
+			field := t.Field(i)
+			if dflag, ok := field.Tag.Lookup("flag"); ok && dflag == fl.Long {
+				def, ok = field.Tag.Lookup("default")
+				if kind := field.Type.Kind(); kind == reflect.Bool {
+					// boolean default value is always false
+					def = "false"
+					break fieldLookup
+				} else if !ok {
+					switch kind {
+					case reflect.Int64:
+						def = "0"
+					case reflect.Float64:
+						def = "0.0"
+					case reflect.String:
+						def = `""`
+					case reflect.Slice, reflect.Map:
+						def = "nil"
+					}
+				}
+				b.buf.WriteString(" value")
+				break
+			}
+		}
+		b.buf.WriteString(" | ")
+		b.buf.WriteString(def)
+		b.buf.WriteString(" | ")
+		// description last
+		b.buf.WriteString(spaceOnly.Replace(strings.TrimSpace(fl.Description)))
+		b.buf.WriteString(" |\n")
+	}
+	b.stage++
+}
+
+func (b *mdb) Example(s string) {
+	b.ensureStage(example)
+	b.buf.WriteString("\nExample:\n")
+	b.buf.WriteString("\n```cook\n")
+	b.buf.WriteString(s)
+	b.buf.WriteString("\n```\n")
+	b.stage++
+}
+
+func (b *mdb) String() string { return b.buf.String() }
+
+func NewConsoleBuilder() Builder {
+	w, _, err := term.GetSize(0)
+	if err != nil {
+		w = 80
+	}
+	return &console{buf: bytes.NewBufferString(""), width: w}
+}
+
+type console struct {
+	buf   *bytes.Buffer
+	stage stage
+	width int
+}
+
+func (b *console) ensureStage(s stage) {
+	if s != b.stage {
+		panic(fmt.Sprintf("required providing %s before %s", b.stage, s))
+	}
+}
+
+func (b *console) addIndent(i int) { b.buf.WriteString(strings.Repeat(" ", i*4)) }
+
+func (b *console) Read(p []byte) (n int, err error) { return b.buf.Read(p) }
+
+func (b *console) Name(n, shortDesc string) {
+	b.ensureStage(name)
+	b.buf.WriteString("NAME\n")
+	b.addIndent(1)
+	b.buf.WriteString(n)
+	b.buf.WriteString(" -- ")
+	b.buf.WriteString(shortDesc)
+	b.buf.WriteString("\n\n")
+	b.stage++
+}
+
+func (b *console) Usage(s string) {
+	b.ensureStage(usage)
+	b.buf.WriteString("USAGE\n")
+	b.addIndent(1)
+	b.buf.WriteString(s)
+	b.buf.WriteString("\n\n")
+	b.stage++
+}
+
+func (b *console) Description(s string) {
+	b.ensureStage(description)
+	b.buf.WriteString("DESCRIPTION\n")
+	b.buf.WriteString(wrapTextWith(4, 0, b.width, s))
+	b.buf.WriteByte('\n')
+	b.stage++
+}
+
+func (b *console) Flag(flags []*Flag, t reflect.Type) {
+	b.ensureStage(flag)
+	b.buf.WriteString("\nAvailable options or flag:\n\n")
+	mw := maxWidthFlag(flags)
+	for _, fl := range flags {
+		b.addIndent(1)
+		w := 0
+		if fl.Short != "" {
+			b.buf.WriteByte('-')
+			b.buf.WriteString(fl.Short)
+			b.buf.WriteString(", ")
+			w += 4
+		}
+		b.buf.WriteString("--")
+		b.buf.WriteString(fl.Long)
+		w += 2 + len(fl.Long)
+		if mw > w {
+			b.buf.WriteString(strings.Repeat(" ", mw-w))
+		}
+		// write default, require type from field defined in struct.
+		// a boolean does not required extra value
+		if t.Kind() == reflect.Ptr {
+			t = t.Elem()
+		}
+		// description last
+		b.buf.WriteString(wrapTextWith(6, 4+mw, b.width, fl.Description))
+		b.buf.WriteString("\n\n")
+	}
+	b.stage++
+}
+
+func (b *console) Example(s string) {
+	b.ensureStage(example)
+	b.buf.WriteString("EXAMPLE\n")
+	b.addIndent(1)
+	b.buf.WriteString(s)
+	b.buf.WriteByte('\n')
+	b.stage++
+}
+
+func (b *console) String() string { return b.buf.String() }
+
+func maxWidthFlag(flags []*Flag) int {
+	w, cur := 0, 0
+	for _, flag := range flags {
+		cur = 0
+		if flag.Short != "" {
+			// "-e, " 4 chars
+			cur += 4
+		}
+		// "--long"
+		cur += 2 + len(flag.Long)
+		if w < cur {
+			w = cur
+		}
+	}
+	return w
+}
+
+var spaceOnly = strings.NewReplacer("\n", " ", "\t", " ")
+
+func wrapTextWith(initSpace, space, w int, txt string) string {
+	buf := strings.Builder{}
+	start, next, seg := 0, w, ""
+	buf.WriteString(strings.Repeat(" ", initSpace))
+	space += initSpace
+	w -= space
+	for {
+		if start != 0 {
+			buf.WriteString(strings.Repeat(" ", space))
+		}
+		i := strings.LastIndexAny(txt[:start+w], " \t\n")
+		if i == -1 {
+			next--
+			seg = spaceOnly.Replace(strings.TrimSpace(txt[start:next]))
+			start, next = next, next+w
+		} else {
+			seg = spaceOnly.Replace(strings.TrimSpace(txt[start:i]))
+			start, next = i, i+w
+		}
+		buf.WriteString(seg)
+		buf.WriteByte('\n')
+		if next > len(txt) {
+			buf.WriteString(strings.Repeat(" ", space))
+			buf.WriteString(spaceOnly.Replace(strings.TrimSpace((txt[start:]))))
+			break
+		}
+	}
+	return buf.String()
+}

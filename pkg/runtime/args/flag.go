@@ -2,6 +2,7 @@ package args
 
 import (
 	"fmt"
+	"io"
 	"reflect"
 	"strconv"
 	"strings"
@@ -165,9 +166,31 @@ func (flag *Flag) Set(field reflect.Value, val string, i int, args []string) (co
 }
 
 type Flags struct {
+	FuncName    string
 	Flags       []*Flag
 	Result      reflect.Type
+	Example     string
+	Usage       string
+	ShortDesc   string
 	Description string
+}
+
+func (flags *Flags) Help(md bool) string            { return flags.generateUsage(md).String() }
+func (flags *Flags) HelpAsReader(md bool) io.Reader { return flags.generateUsage(md) }
+
+func (flags *Flags) generateUsage(md bool) Builder {
+	var builder Builder
+	if md {
+		builder = NewMarkdownBuilder()
+	} else {
+		builder = NewConsoleBuilder()
+	}
+	builder.Name(flags.FuncName, flags.ShortDesc)
+	builder.Usage(flags.Usage)
+	builder.Description(flags.Description)
+	builder.Flag(flags.Flags, flags.Result)
+	builder.Example(flags.Example)
+	return builder
 }
 
 func (flags *Flags) Validate() error {
