@@ -1,6 +1,7 @@
 package args
 
 import (
+	"net/http"
 	"reflect"
 	"testing"
 
@@ -9,14 +10,16 @@ import (
 )
 
 type OptionsTest struct {
-	Flaga      string                 `flag:"flaga"`
-	IsMentionA bool                   `mention:"flaga"`
-	Flagb      bool                   `flag:"flagb"`
-	Flagc      int64                  `flag:"flagc"`
-	Flagd      float64                `flag:"flagd"`
-	Flage      []int64                `flag:"flage"`
-	Flagf      []interface{}          `flag:"flagf"`
-	Flagg      map[string]interface{} `flag:"flagg"`
+	Flaga      string                        `flag:"flaga"`
+	IsMentionA bool                          `mention:"flaga"`
+	Flagb      bool                          `flag:"flagb"`
+	Flagc      int64                         `flag:"flagc"`
+	Flagd      float64                       `flag:"flagd"`
+	Flage      []int64                       `flag:"flage"`
+	Flagf      []interface{}                 `flag:"flagf"`
+	Flagg      map[string]interface{}        `flag:"flagg"`
+	Header     http.Header                   `flag:"header"`
+	Mslice     map[interface{}][]interface{} `flag:"mslice"`
 	Args       []interface{}
 }
 
@@ -33,6 +36,8 @@ var testFlags = &Flags{
 		{Short: "e", Long: "flage"},
 		{Short: "f", Long: "flagf"},
 		{Short: "g", Long: "flagg"},
+		{Short: "h", Long: "header"},
+		{Short: "m", Long: "mslice"},
 	},
 	Result: reflect.TypeOf((*OptionsTest)(nil)).Elem(),
 }
@@ -116,6 +121,28 @@ var testCases = []*argsCase{
 		opts: &OptionsTest{
 			Flagg: map[string]interface{}{"99": int64(99), "2.2": "abc", "text": 2.3},
 			Args:  []interface{}{"non3"},
+		},
+	},
+	{
+		input: []string{"-h", "123:abc", "-h", "123:3.42", "--header", "abc:99312"},
+		opts: &OptionsTest{
+			Header: map[string][]string{
+				"123": {"abc", "3.42"},
+				"abc": {"99312"},
+			},
+		},
+	},
+	{
+		input: []string{"--header", "abc:99312", "-m", "abc:123", "-m", "123:false", "-m", "123:1.23", "-m", "true:xyz"},
+		opts: &OptionsTest{
+			Header: map[string][]string{
+				"abc": {"99312"},
+			},
+			Mslice: map[interface{}][]interface{}{
+				"abc":      {int64(123)},
+				int64(123): {false, 1.23},
+				true:       {"xyz"},
+			},
 		},
 	},
 }
@@ -265,6 +292,69 @@ var testFnCases = []*testFnFlag{
 		opts: &OptionsTest{
 			Flagg: map[string]interface{}{"99": int64(99), "2.2": "abc", "text": 2.3},
 			Args:  []interface{}{"non3"},
+		},
+	},
+	{
+		input: []*FunctionArg{
+			{val: "-h", kind: reflect.String},
+			{val: "123:abc", kind: reflect.String},
+			{val: "-h", kind: reflect.String},
+			{val: "123:3.42", kind: reflect.String},
+			{val: "--header", kind: reflect.String},
+			{val: "abc:99312", kind: reflect.String},
+		},
+		opts: &OptionsTest{
+			Header: map[string][]string{
+				"123": {"abc", "3.42"},
+				"abc": {"99312"},
+			},
+		},
+	},
+	{
+		input: []*FunctionArg{
+			{val: "--header", kind: reflect.String},
+			{val: "abc:99312", kind: reflect.String},
+			{val: "-m", kind: reflect.String},
+			{val: "abc:123", kind: reflect.String},
+			{val: "-m", kind: reflect.String},
+			{val: "123:false", kind: reflect.String},
+			{val: "-m", kind: reflect.String},
+			{val: "123:1.23", kind: reflect.String},
+			{val: "-m", kind: reflect.String},
+			{val: "true:xyz", kind: reflect.String},
+		},
+		opts: &OptionsTest{
+			Header: map[string][]string{
+				"abc": {"99312"},
+			},
+			Mslice: map[interface{}][]interface{}{
+				"abc":      {int64(123)},
+				int64(123): {false, 1.23},
+				true:       {"xyz"},
+			},
+		},
+	},
+	{
+		input: []*FunctionArg{
+			{val: "--header", kind: reflect.String},
+			{val: "abc:99312", kind: reflect.String},
+			{val: "-m", kind: reflect.String},
+			{
+				val: map[interface{}][]interface{}{
+					"xyz": {int64(852), 1.6, "ioy"},
+					1.45:  {"hol", int64(93), true},
+				},
+				kind: reflect.Map,
+			},
+		},
+		opts: &OptionsTest{
+			Header: map[string][]string{
+				"abc": {"99312"},
+			},
+			Mslice: map[interface{}][]interface{}{
+				"xyz": {int64(852), 1.6, "ioy"},
+				1.45:  {"hol", int64(93), true},
+			},
 		},
 	},
 }

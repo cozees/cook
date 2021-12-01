@@ -129,18 +129,18 @@ func (flag *Flag) Set(field reflect.Value, val string, nextArg interface{}, next
 	nextArgVal := reflect.ValueOf(nextArg)
 	switch t {
 	case reflect.Slice:
-		etype := te.Elem().Kind()
+		eKind := te.Elem().Kind()
 		if nextArg != nil {
 			// if it was a slice or same as element of a slice
 			if nextArgKind == t {
 				sliceEKind := nextArgVal.Type().Elem().Kind()
-				if sliceEKind != etype {
-					return false, fmt.Errorf("argment value %v element type %s is not match with %s", nextArg, sliceEKind, etype)
+				if sliceEKind != eKind {
+					return false, fmt.Errorf("argment value %v element type %s is not match with %s", nextArg, sliceEKind, eKind)
 				}
 				advance = true
 				field.Set(nextArgVal)
 				break
-			} else if nextArgKind == etype || (etype == reflect.Interface && nextArgKind != reflect.String) {
+			} else if nextArgKind == eKind || (eKind == reflect.Interface && nextArgKind != reflect.String) {
 				field.Set(reflect.Append(field, nextArgVal))
 				advance = true
 				break
@@ -151,7 +151,7 @@ func (flag *Flag) Set(field reflect.Value, val string, nextArg interface{}, next
 			val = nextArg.(string)
 		}
 		// try to convert string to value type "t"
-		if fval, err := parseFlagValue(etype, val); err != nil {
+		if fval, err := parseFlagValue(eKind, val); err != nil {
 			return false, err
 		} else {
 			field.Set(reflect.Append(field, reflect.ValueOf(fval)))
@@ -188,13 +188,30 @@ func (flag *Flag) Set(field reflect.Value, val string, nextArg interface{}, next
 		if kval, err = parseFlagValue(te.Key().Kind(), val[:icolon]); err != nil {
 			return false, err
 		}
-		if vval, err = parseFlagValue(te.Elem().Kind(), val[icolon+1:]); err != nil {
+		// special case for slice in map
+		ekind := te.Elem().Kind()
+		if ekind == reflect.Slice {
+			ekind := te.Elem().Elem().Kind()
+			if vval, err = parseFlagValue(ekind, val[icolon+1:]); err != nil {
+				return false, err
+			}
+			key := reflect.ValueOf(kval)
+			if field.IsNil() {
+				field.Set(reflect.MakeMap(field.Type()))
+			}
+			slice := field.MapIndex(key)
+			if slice == (reflect.Value{}) {
+				slice = reflect.MakeSlice(te.Elem(), 0, 1)
+			}
+			field.SetMapIndex(key, reflect.Append(slice, reflect.ValueOf(vval)))
+		} else if vval, err = parseFlagValue(ekind, val[icolon+1:]); err != nil {
 			return false, err
+		} else {
+			if field.IsNil() {
+				field.Set(reflect.MakeMap(field.Type()))
+			}
+			field.SetMapIndex(reflect.ValueOf(kval), reflect.ValueOf(vval))
 		}
-		if field.IsNil() {
-			field.Set(reflect.MakeMap(field.Type()))
-		}
-		field.SetMapIndex(reflect.ValueOf(kval), reflect.ValueOf(vval))
 	default:
 		if nextArg != nil {
 			if t == nextArgKind {
