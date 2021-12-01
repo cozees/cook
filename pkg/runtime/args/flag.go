@@ -324,6 +324,7 @@ func (flags *Flags) parseInternal(args []string, fnArgs []*FunctionArg) (v inter
 		sarg      string
 		narg      interface{}
 		nargk     reflect.Kind
+		field     reflect.Value
 	)
 	if length == 0 {
 		length = len(fnArgs)
@@ -344,8 +345,9 @@ func (flags *Flags) parseInternal(args []string, fnArgs []*FunctionArg) (v inter
 			continue
 		}
 		// find field in struct with tag that belong to the flag
-		field := findField(flags.Result, val, flag.Long)
-		if !field.CanSet() {
+		if field, err = findField(flags.Result, val, flag.Long); err != nil {
+			return
+		} else if !field.CanSet() {
 			err = fmt.Errorf("field %s was not found or not exported", flag.Long)
 			return
 		}
@@ -417,13 +419,28 @@ func parseFlagValue(kind reflect.Kind, v string) (interface{}, error) {
 	}
 }
 
-func findField(t reflect.Type, v reflect.Value, name string) reflect.Value {
+func findField(t reflect.Type, v reflect.Value, name string) (rfield reflect.Value, err error) {
 	numField := t.NumField()
+	mention, found := false, false
 	for i := 0; i < numField; i++ {
 		field := t.Field(i)
-		if field.Name == name || field.Tag.Get("flag") == name {
-			return v.Field(i)
+		if !found && field.Tag.Get("flag") == name {
+			rfield = v.Field(i)
+			if mention {
+				break
+			}
+			found = true
+		} else if !mention && field.Tag.Get("mention") == name {
+			if field.Type.Kind() != reflect.Bool {
+				err = fmt.Errorf("mention field %s must have boolean type", field.Name)
+				break
+			}
+			v.Field(i).SetBool(true)
+			if found {
+				break
+			}
+			mention = true
 		}
 	}
-	return reflect.Value{}
+	return
 }

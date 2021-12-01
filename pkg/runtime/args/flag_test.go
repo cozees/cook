@@ -9,14 +9,15 @@ import (
 )
 
 type OptionsTest struct {
-	Flaga string                 `flag:"flaga"`
-	Flagb bool                   `flag:"flagb"`
-	Flagc int64                  `flag:"flagc"`
-	Flagd float64                `flag:"flagd"`
-	Flage []int64                `flag:"flage"`
-	Flagf []interface{}          `flag:"flagf"`
-	Flagg map[string]interface{} `flag:"flagg"`
-	Args  []interface{}
+	Flaga      string                 `flag:"flaga"`
+	IsMentionA bool                   `mention:"flaga"`
+	Flagb      bool                   `flag:"flagb"`
+	Flagc      int64                  `flag:"flagc"`
+	Flagd      float64                `flag:"flagd"`
+	Flage      []int64                `flag:"flage"`
+	Flagf      []interface{}          `flag:"flagf"`
+	Flagg      map[string]interface{} `flag:"flagg"`
+	Args       []interface{}
 }
 
 const dummyDescription = `Lorem Ipsum is simply dummy text of the printing and typesetting industry.
@@ -47,39 +48,52 @@ var testCases = []*argsCase{
 	{
 		input: []string{"-b", "-a", "text"},
 		opts: &OptionsTest{
-			Flagb: true,
-			Flaga: "text",
+			Flagb:      true,
+			Flaga:      "text",
+			IsMentionA: true,
+		},
+	},
+	{
+		input: []string{"-b", "-a", ""},
+		opts: &OptionsTest{
+			Flagb:      true,
+			Flaga:      "",
+			IsMentionA: true,
 		},
 	},
 	{
 		input: []string{"--flagb", "-a", "text", "non-flag-or-options"},
 		opts: &OptionsTest{
-			Flagb: true,
-			Flaga: "text",
-			Args:  []interface{}{"non-flag-or-options"},
+			Flagb:      true,
+			Flaga:      "text",
+			IsMentionA: true,
+			Args:       []interface{}{"non-flag-or-options"},
 		},
 	},
 	{
 		input: []string{"--flaga", "discard text", "-a", "text", "non-flag-or-options"},
 		opts: &OptionsTest{
-			Flaga: "text",
-			Args:  []interface{}{"non-flag-or-options"},
+			Flaga:      "text",
+			IsMentionA: true,
+			Args:       []interface{}{"non-flag-or-options"},
 		},
 	},
 	{
 		input: []string{"-c", "873", "-a", "text", "non-flag-or-options"},
 		opts: &OptionsTest{
-			Flaga: "text",
-			Flagc: int64(873),
-			Args:  []interface{}{"non-flag-or-options"},
+			Flaga:      "text",
+			IsMentionA: true,
+			Flagc:      int64(873),
+			Args:       []interface{}{"non-flag-or-options"},
 		},
 	},
 	{
 		input: []string{"-c", "12", "--flagc", "873", "-a", "text of text", "non-flag-or-options"},
 		opts: &OptionsTest{
-			Flaga: "text of text",
-			Flagc: int64(873),
-			Args:  []interface{}{"non-flag-or-options"},
+			Flaga:      "text of text",
+			IsMentionA: true,
+			Flagc:      int64(873),
+			Args:       []interface{}{"non-flag-or-options"},
 		},
 	},
 	{
@@ -128,8 +142,21 @@ var testFnCases = []*testFnFlag{
 			{val: "text", kind: reflect.String},
 		},
 		opts: &OptionsTest{
-			Flagb: true,
-			Flaga: "text",
+			Flagb:      true,
+			Flaga:      "text",
+			IsMentionA: true,
+		},
+	},
+	{
+		input: []*FunctionArg{
+			{val: "-b", kind: reflect.String},
+			{val: "-a", kind: reflect.String},
+			{val: "", kind: reflect.String},
+		},
+		opts: &OptionsTest{
+			Flagb:      true,
+			Flaga:      "",
+			IsMentionA: true,
 		},
 	},
 	{
@@ -140,9 +167,10 @@ var testFnCases = []*testFnFlag{
 			{val: "non-flag-or-options", kind: reflect.String},
 		},
 		opts: &OptionsTest{
-			Flagb: true,
-			Flaga: "text",
-			Args:  []interface{}{"non-flag-or-options"},
+			Flagb:      true,
+			Flaga:      "text",
+			IsMentionA: true,
+			Args:       []interface{}{"non-flag-or-options"},
 		},
 	},
 	{
@@ -154,8 +182,9 @@ var testFnCases = []*testFnFlag{
 			{val: "non-flag-or-options", kind: reflect.String},
 		},
 		opts: &OptionsTest{
-			Flaga: "text",
-			Args:  []interface{}{"non-flag-or-options"},
+			Flaga:      "text",
+			IsMentionA: true,
+			Args:       []interface{}{"non-flag-or-options"},
 		},
 	},
 	{
@@ -167,9 +196,10 @@ var testFnCases = []*testFnFlag{
 			{val: "non-flag-or-options", kind: reflect.String},
 		},
 		opts: &OptionsTest{
-			Flaga: "text",
-			Flagc: int64(873),
-			Args:  []interface{}{"non-flag-or-options"},
+			Flaga:      "text",
+			IsMentionA: true,
+			Flagc:      int64(873),
+			Args:       []interface{}{"non-flag-or-options"},
 		},
 	},
 	{
@@ -183,9 +213,10 @@ var testFnCases = []*testFnFlag{
 			{val: "non-flag-or-options", kind: reflect.String},
 		},
 		opts: &OptionsTest{
-			Flaga: "text of text",
-			Flagc: int64(873),
-			Args:  []interface{}{"non-flag-or-options"},
+			Flaga:      "text of text",
+			IsMentionA: true,
+			Flagc:      int64(873),
+			Args:       []interface{}{"non-flag-or-options"},
 		},
 	},
 	{
