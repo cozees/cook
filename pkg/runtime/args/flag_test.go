@@ -16,12 +16,25 @@ type OptionsTest struct {
 	Flage []int64                `flag:"flage"`
 	Flagf []interface{}          `flag:"flagf"`
 	Flagg map[string]interface{} `flag:"flagg"`
-	Args  []string
+	Args  []interface{}
 }
 
 const dummyDescription = `Lorem Ipsum is simply dummy text of the printing and typesetting industry.
 Lorem Ipsum has been the industry's standard dummy text ever since the 1500s,
 when an unknown printer took a galley of type and scrambled it to make a type specimen book.`
+
+var testFlags = &Flags{
+	Flags: []*Flag{
+		{Short: "a", Long: "flaga"},
+		{Short: "b", Long: "flagb"},
+		{Short: "c", Long: "flagc"},
+		{Short: "d", Long: "flagd"},
+		{Short: "e", Long: "flage"},
+		{Short: "f", Long: "flagf"},
+		{Short: "g", Long: "flagg"},
+	},
+	Result: reflect.TypeOf((*OptionsTest)(nil)).Elem(),
+}
 
 type argsCase struct {
 	input   []string
@@ -30,87 +43,65 @@ type argsCase struct {
 	err     error
 }
 
-type testFlags struct {
-	*Flags
-	cases []*argsCase
-}
-
-var testCases = []*testFlags{
+var testCases = []*argsCase{
 	{
-		Flags: &Flags{
-			Flags: []*Flag{
-				{Short: "a", Long: "flaga", Description: dummyDescription},
-				{Short: "b", Long: "flagb", Description: dummyDescription},
-				{Short: "c", Long: "flagc", Description: dummyDescription},
-				{Short: "d", Long: "flagd", Description: dummyDescription},
-				{Short: "e", Long: "flage", Description: dummyDescription},
-				{Short: "f", Long: "flagf", Description: dummyDescription},
-				{Short: "g", Long: "flagg", Description: dummyDescription},
-			},
-			Result:      reflect.TypeOf((*OptionsTest)(nil)).Elem(),
-			Description: dummyDescription,
+		input: []string{"-b", "-a", "text"},
+		opts: &OptionsTest{
+			Flagb: true,
+			Flaga: "text",
 		},
-		cases: []*argsCase{
-			{
-				input: []string{"-b", "-a", "text"},
-				opts: &OptionsTest{
-					Flagb: true,
-					Flaga: "text",
-				},
-			},
-			{
-				input: []string{"--flagb", "-a", "text", "non-flag-or-options"},
-				opts: &OptionsTest{
-					Flagb: true,
-					Flaga: "text",
-					Args:  []string{"non-flag-or-options"},
-				},
-			},
-			{
-				input: []string{"--flaga", "discard text", "-a", "text", "non-flag-or-options"},
-				opts: &OptionsTest{
-					Flaga: "text",
-					Args:  []string{"non-flag-or-options"},
-				},
-			},
-			{
-				input: []string{"-c", "873", "-a", "text", "non-flag-or-options"},
-				opts: &OptionsTest{
-					Flaga: "text",
-					Flagc: int64(873),
-					Args:  []string{"non-flag-or-options"},
-				},
-			},
-			{
-				input: []string{"-c", "12", "--flagc", "873", "-a", "text of text", "non-flag-or-options"},
-				opts: &OptionsTest{
-					Flaga: "text of text",
-					Flagc: int64(873),
-					Args:  []string{"non-flag-or-options"},
-				},
-			},
-			{
-				input: []string{"-d", "1.2", "non1", "non2", "--flage", "22", "-e", "42", "non3"},
-				opts: &OptionsTest{
-					Flagd: 1.2,
-					Flage: []int64{22, 42},
-					Args:  []string{"non1", "non2", "non3"},
-				},
-			},
-			{
-				input: []string{"--flagf", "99", "-f", "2.2", "-f", "text", "non3"},
-				opts: &OptionsTest{
-					Flagf: []interface{}{int64(99), 2.2, "text"},
-					Args:  []string{"non3"},
-				},
-			},
-			{
-				input: []string{"--flagg", "99:99", "-g", "2.2:abc", "-g", "text:2.3", "non3"},
-				opts: &OptionsTest{
-					Flagg: map[string]interface{}{"99": int64(99), "2.2": "abc", "text": 2.3},
-					Args:  []string{"non3"},
-				},
-			},
+	},
+	{
+		input: []string{"--flagb", "-a", "text", "non-flag-or-options"},
+		opts: &OptionsTest{
+			Flagb: true,
+			Flaga: "text",
+			Args:  []interface{}{"non-flag-or-options"},
+		},
+	},
+	{
+		input: []string{"--flaga", "discard text", "-a", "text", "non-flag-or-options"},
+		opts: &OptionsTest{
+			Flaga: "text",
+			Args:  []interface{}{"non-flag-or-options"},
+		},
+	},
+	{
+		input: []string{"-c", "873", "-a", "text", "non-flag-or-options"},
+		opts: &OptionsTest{
+			Flaga: "text",
+			Flagc: int64(873),
+			Args:  []interface{}{"non-flag-or-options"},
+		},
+	},
+	{
+		input: []string{"-c", "12", "--flagc", "873", "-a", "text of text", "non-flag-or-options"},
+		opts: &OptionsTest{
+			Flaga: "text of text",
+			Flagc: int64(873),
+			Args:  []interface{}{"non-flag-or-options"},
+		},
+	},
+	{
+		input: []string{"-d", "1.2", "non1", "non2", "--flage", "22", "-e", "42", "non3"},
+		opts: &OptionsTest{
+			Flagd: 1.2,
+			Flage: []int64{22, 42},
+			Args:  []interface{}{"non1", "non2", "non3"},
+		},
+	},
+	{
+		input: []string{"--flagf", "99", "-f", "2.2", "-f", "text", "non3"},
+		opts: &OptionsTest{
+			Flagf: []interface{}{int64(99), 2.2, "text"},
+			Args:  []interface{}{"non3"},
+		},
+	},
+	{
+		input: []string{"--flagg", "99:99", "-g", "2.2:abc", "-g", "text:2.3", "non3"},
+		opts: &OptionsTest{
+			Flagg: map[string]interface{}{"99": int64(99), "2.2": "abc", "text": 2.3},
+			Args:  []interface{}{"non3"},
 		},
 	},
 }
@@ -118,12 +109,141 @@ var testCases = []*testFlags{
 func TestFlag(t *testing.T) {
 	for i, tc := range testCases {
 		t.Logf("TestFlag case #%d", i+1)
-		for si, stc := range tc.cases {
-			t.Logf("\tTestFlag subcase #%d", si+1)
-			opts, err := tc.Parse(stc.input)
-			require.NoError(t, err)
-			assert.Equal(t, stc.opts, opts)
-		}
+		opts, err := testFlags.Parse(tc.input)
+		require.NoError(t, err)
+		assert.Equal(t, tc.opts, opts)
+	}
+}
+
+type testFnFlag struct {
+	input []*FunctionArg
+	opts  interface{}
+}
+
+var testFnCases = []*testFnFlag{
+	{
+		input: []*FunctionArg{
+			{val: "-b", kind: reflect.String},
+			{val: "-a", kind: reflect.String},
+			{val: "text", kind: reflect.String},
+		},
+		opts: &OptionsTest{
+			Flagb: true,
+			Flaga: "text",
+		},
+	},
+	{
+		input: []*FunctionArg{
+			{val: "--flagb", kind: reflect.String},
+			{val: "-a", kind: reflect.String},
+			{val: "text", kind: reflect.String},
+			{val: "non-flag-or-options", kind: reflect.String},
+		},
+		opts: &OptionsTest{
+			Flagb: true,
+			Flaga: "text",
+			Args:  []interface{}{"non-flag-or-options"},
+		},
+	},
+	{
+		input: []*FunctionArg{
+			{val: "--flaga", kind: reflect.String},
+			{val: "discard text", kind: reflect.String},
+			{val: "-a", kind: reflect.String},
+			{val: "text", kind: reflect.String},
+			{val: "non-flag-or-options", kind: reflect.String},
+		},
+		opts: &OptionsTest{
+			Flaga: "text",
+			Args:  []interface{}{"non-flag-or-options"},
+		},
+	},
+	{
+		input: []*FunctionArg{
+			{val: "-c", kind: reflect.String},
+			{val: int64(873), kind: reflect.Int64},
+			{val: "-a", kind: reflect.String},
+			{val: "text", kind: reflect.String},
+			{val: "non-flag-or-options", kind: reflect.String},
+		},
+		opts: &OptionsTest{
+			Flaga: "text",
+			Flagc: int64(873),
+			Args:  []interface{}{"non-flag-or-options"},
+		},
+	},
+	{
+		input: []*FunctionArg{
+			{val: "-c", kind: reflect.String},
+			{val: int64(12), kind: reflect.Int64},
+			{val: "--flagc", kind: reflect.String},
+			{val: int64(873), kind: reflect.Int64},
+			{val: "-a", kind: reflect.String},
+			{val: "text of text", kind: reflect.String},
+			{val: "non-flag-or-options", kind: reflect.String},
+		},
+		opts: &OptionsTest{
+			Flaga: "text of text",
+			Flagc: int64(873),
+			Args:  []interface{}{"non-flag-or-options"},
+		},
+	},
+	{
+		input: []*FunctionArg{
+			{val: "-d", kind: reflect.String},
+			{val: 1.2, kind: reflect.Float64},
+			{val: "non1", kind: reflect.String},
+			{val: "non2", kind: reflect.String},
+			{val: "--flage", kind: reflect.String},
+			{val: int64(22), kind: reflect.Int64},
+			{val: "-e", kind: reflect.String},
+			{val: int64(42), kind: reflect.Int64},
+			{val: "non3", kind: reflect.String},
+		},
+		opts: &OptionsTest{
+			Flagd: 1.2,
+			Flage: []int64{22, 42},
+			Args:  []interface{}{"non1", "non2", "non3"},
+		},
+	},
+	{
+		input: []*FunctionArg{
+			{val: "--flagf", kind: reflect.String},
+			{val: int64(99), kind: reflect.Int64},
+			{val: "-f", kind: reflect.String},
+			{val: 2.2, kind: reflect.Float64},
+			{val: "-f", kind: reflect.String},
+			{val: "text", kind: reflect.String},
+			{val: "non3", kind: reflect.String},
+		},
+		opts: &OptionsTest{
+			Flagf: []interface{}{int64(99), 2.2, "text"},
+			Args:  []interface{}{"non3"},
+		},
+	},
+	{
+		input: []*FunctionArg{
+			{val: "--flagg", kind: reflect.String},
+			{val: map[string]int64{"99": int64(99)}, kind: reflect.Map},
+			{val: "-g", kind: reflect.String},
+			{val: map[string]string{"2.2": "abc"}, kind: reflect.Map},
+			{val: "-g", kind: reflect.String},
+			{val: "text:2.3", kind: reflect.String},
+			{val: "non3", kind: reflect.String},
+		},
+		opts: &OptionsTest{
+			Flagg: map[string]interface{}{"99": int64(99), "2.2": "abc", "text": 2.3},
+			Args:  []interface{}{"non3"},
+		},
+	},
+}
+
+func TestFuncFlagParsing(t *testing.T) {
+	for i, tc := range testFnCases {
+		t.Logf("TestFnParsing case #%d", i+1)
+		opts, err := testFlags.ParseFunctionArgs(tc.input)
+		require.NoError(t, err)
+		assert.Equal(t, tc.opts, opts)
 	}
 }
 

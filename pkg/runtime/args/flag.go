@@ -107,11 +107,9 @@ type Flag struct {
 	Description string
 }
 
-func (flag *Flag) Set(field reflect.Value, val string, i int, args []string) (consumed bool, err error) {
+func (flag *Flag) Set(field reflect.Value, val string, nextArg interface{}, nextArgKind reflect.Kind) (advance bool, err error) {
 	// get field type
 	t := field.Kind()
-	// convert value if needed
-	n := i + 1
 	switch {
 	case t == reflect.Array:
 		return false, fmt.Errorf("flag type must be a slice not an array")
@@ -120,49 +118,107 @@ func (flag *Flag) Set(field reflect.Value, val string, i int, args []string) (co
 			return false, fmt.Errorf("boolean flag should not have extral value")
 		}
 		field.Set(reflect.ValueOf(true))
+		return false, nil
 	case val == "":
-		if n >= len(args) {
+		if nextArg == nil {
 			return false, fmt.Errorf("not enough argument, missing value for flag %s", flag.Long)
 		}
-		val = args[n]
-		i = n
-		fallthrough
-	default:
-		// special case for map and array
-		te := field.Type()
-		switch t {
-		case reflect.Slice:
-			t = te.Elem().Kind()
-			if fval, err := parseFlagValue(t, val); err != nil {
-				return false, err
-			} else {
-				field.Set(reflect.Append(field, reflect.ValueOf(fval)))
-			}
-		case reflect.Map:
-			icolon := strings.IndexByte(val, ':')
-			if icolon < 1 {
-				return false, fmt.Errorf("invalid map entry %s for flag %s", val, flag.Long)
-			}
-			var kval, vval interface{}
-			if kval, err = parseFlagValue(te.Key().Kind(), val[:icolon]); err != nil {
-				return false, err
-			}
-			if vval, err = parseFlagValue(te.Elem().Kind(), val[icolon+1:]); err != nil {
-				return false, err
-			}
-			if field.IsNil() {
-				field.Set(reflect.MakeMap(field.Type()))
-			}
-			field.SetMapIndex(reflect.ValueOf(kval), reflect.ValueOf(vval))
-		default:
-			var vval interface{}
-			if vval, err = parseFlagValue(t, val); err != nil {
-				return false, err
-			}
-			field.Set(reflect.ValueOf(vval))
-		}
 	}
-	return n == i, nil
+	// special case for map and array
+	te := field.Type()
+	nextArgVal := reflect.ValueOf(nextArg)
+	switch t {
+	case reflect.Slice:
+		etype := te.Elem().Kind()
+		if nextArg != nil {
+			// if it was a slice or same as element of a slice
+			if nextArgKind == t {
+				sliceEKind := nextArgVal.Type().Elem().Kind()
+				if sliceEKind != etype {
+					return false, fmt.Errorf("argment value %v element type %s is not match with %s", nextArg, sliceEKind, etype)
+				}
+				advance = true
+				field.Set(nextArgVal)
+				break
+			} else if nextArgKind == etype || (etype == reflect.Interface && nextArgKind != reflect.String) {
+				field.Set(reflect.Append(field, nextArgVal))
+				advance = true
+				break
+			} else if nextArgKind != reflect.String {
+				return false, fmt.Errorf("function argument %v (%s) is not match with %s", nextArg, nextArgKind, t)
+			}
+			advance = true
+			val = nextArg.(string)
+		}
+		// try to convert string to value type "t"
+		if fval, err := parseFlagValue(etype, val); err != nil {
+			return false, err
+		} else {
+			field.Set(reflect.Append(field, reflect.ValueOf(fval)))
+		}
+	case reflect.Map:
+		if nextArg != nil {
+			if nextArgKind == t {
+				nt := nextArgVal.Type()
+				kkind, vkind := te.Key().Kind(), te.Elem().Kind()
+				nKeyKind, nValKind := nt.Key().Kind(), nt.Elem().Kind()
+				if (kkind != reflect.Interface && nKeyKind != kkind) || (vkind != reflect.Interface && nValKind != vkind) {
+					return false, fmt.Errorf("value %v type (%s:%s) is not compatible with %s:%s", nextArg, nKeyKind, nValKind, kkind, vkind)
+				}
+				advance = true
+				if field.IsNil() {
+					field.Set(reflect.MakeMap(te))
+				}
+				for _, kv := range nextArgVal.MapKeys() {
+					field.SetMapIndex(kv, nextArgVal.MapIndex(kv))
+				}
+				break
+			} else if nextArgKind != reflect.String {
+				return false, fmt.Errorf("function argument %v (%s) is not a map", nextArg, nextArgKind)
+			}
+			advance = true
+			val = nextArg.(string)
+		}
+
+		icolon := strings.IndexByte(val, ':')
+		if icolon < 1 {
+			return false, fmt.Errorf("invalid map entry %s for flag %s", val, flag.Long)
+		}
+		var kval, vval interface{}
+		if kval, err = parseFlagValue(te.Key().Kind(), val[:icolon]); err != nil {
+			return false, err
+		}
+		if vval, err = parseFlagValue(te.Elem().Kind(), val[icolon+1:]); err != nil {
+			return false, err
+		}
+		if field.IsNil() {
+			field.Set(reflect.MakeMap(field.Type()))
+		}
+		field.SetMapIndex(reflect.ValueOf(kval), reflect.ValueOf(vval))
+	default:
+		if nextArg != nil {
+			if t == nextArgKind {
+				field.Set(nextArgVal)
+				advance = true
+				break
+			} else if nextArgKind != reflect.String {
+				return false, fmt.Errorf("value %v type %s is compatible with %s", nextArg, nextArgKind, t)
+			}
+			advance = true
+			val = nextArg.(string)
+		}
+		var vval interface{}
+		if vval, err = parseFlagValue(t, val); err != nil {
+			return false, err
+		}
+		field.Set(reflect.ValueOf(vval))
+	}
+	return advance, nil
+}
+
+type FunctionArg struct {
+	val  interface{}
+	kind reflect.Kind
 }
 
 type Flags struct {
@@ -216,30 +272,74 @@ func (flags *Flags) Validate() error {
 	return nil
 }
 
-func (flags *Flags) Parse(args []string) (v interface{}, err error) {
+func (flags *Flags) ensureStruct() error {
 	if flags.Result.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("option result must be a pointer or struct")
+		return fmt.Errorf("option result must be a pointer or struct")
 	}
-	var flag *Flag
-	var remaining []string
-	var fval string
-	var val = reflect.New(flags.Result).Elem()
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		switch {
-		case strings.HasPrefix(arg, "--"):
-			if flag, fval, err = flags.findFlag(arg[2:], false); err != nil {
-				return
+	return nil
+}
+
+func (flags *Flags) checkFlag(arg string) (flag *Flag, fval string, err error) {
+	switch {
+	case strings.HasPrefix(arg, "--"):
+		if flag, fval, err = flags.findFlag(arg[2:], false); err != nil {
+			return
+		}
+	case strings.HasPrefix(arg, "-"):
+		if len(arg) > 2 {
+			err = fmt.Errorf("long flag %s required (--)", arg)
+			return
+		}
+		if flag, fval, err = flags.findFlag(arg[1:], true); err != nil {
+			return
+		}
+	}
+	return
+}
+
+// ParseFlagFunction return a pointer to a struct result if no error occurred.
+// Unlike Parse which accept slice of string, `ParseFlagFunction` accept a slice
+// of interface value (any value), in order to avoid parsing back and forth between
+// string and numeric value. When args values is all strings then `ParseFlagFunction`
+// is behave exactly as `Parse` method
+func (flags *Flags) ParseFunctionArgs(args []*FunctionArg) (interface{}, error) {
+	return flags.parseInternal(nil, args)
+}
+
+func (flags *Flags) Parse(args []string) (interface{}, error) {
+	return flags.parseInternal(args, nil)
+}
+
+func (flags *Flags) parseInternal(args []string, fnArgs []*FunctionArg) (v interface{}, err error) {
+	if err = flags.ensureStruct(); err != nil {
+		return nil, err
+	}
+	var (
+		flag      *Flag
+		remaining []interface{}
+		fval      string
+		val       = reflect.New(flags.Result).Elem()
+		length    = len(args)
+		arg       interface{}
+		sarg      string
+		narg      interface{}
+		nargk     reflect.Kind
+	)
+	if length == 0 {
+		length = len(fnArgs)
+	}
+	for i := 0; i < length; i++ {
+		if args != nil {
+			arg, sarg = args[i], args[i]
+		} else {
+			arg = fnArgs[i].val
+			if fnArgs[i].kind == reflect.String {
+				sarg = arg.(string)
 			}
-		case strings.HasPrefix(arg, "-"):
-			if len(arg) > 2 {
-				err = fmt.Errorf("long flag %s required (--)", arg)
-				return
-			}
-			if flag, fval, err = flags.findFlag(arg[1:], true); err != nil {
-				return
-			}
-		default:
+		}
+		if flag, fval, err = flags.checkFlag(sarg); err != nil {
+			return
+		} else if flag == nil {
 			remaining = append(remaining, arg)
 			continue
 		}
@@ -249,16 +349,26 @@ func (flags *Flags) Parse(args []string) (v interface{}, err error) {
 			err = fmt.Errorf("field %s was not found or not exported", flag.Long)
 			return
 		}
-		if inc, err := flag.Set(field, fval, i, args); err != nil {
+		n := i + 1
+		if fval == "" && n < length {
+			if args != nil {
+				narg = args[n]
+				nargk = reflect.String
+			} else {
+				narg = fnArgs[n].val
+				nargk = fnArgs[n].kind
+			}
+		}
+		if inc, err := flag.Set(field, fval, narg, nargk); err != nil {
 			return nil, err
 		} else if inc {
-			i++
+			i = n
 		}
 	}
 	if len(remaining) > 0 {
 		field := val.FieldByName("Args")
-		if !field.CanSet() {
-			err = fmt.Errorf("options %s must defined field Args []string", flags.Result.Name())
+		if !field.CanSet() || field.Kind() != reflect.Slice || field.Type().Elem().Kind() != reflect.Interface {
+			err = fmt.Errorf("options %s must defined field Args []interface{}", flags.Result.Name())
 			return
 		}
 		field.Set(reflect.ValueOf(remaining))
