@@ -164,9 +164,9 @@ type testFnFlag struct {
 var testFnCases = []*testFnFlag{
 	{
 		input: []*FunctionArg{
-			{val: "-b", kind: reflect.String},
-			{val: "-a", kind: reflect.String},
-			{val: "text", kind: reflect.String},
+			{Val: "-b", Kind: reflect.String},
+			{Val: "-a", Kind: reflect.String},
+			{Val: "text", Kind: reflect.String},
 		},
 		opts: &OptionsTest{
 			Flagb:      true,
@@ -176,9 +176,9 @@ var testFnCases = []*testFnFlag{
 	},
 	{
 		input: []*FunctionArg{
-			{val: "-b", kind: reflect.String},
-			{val: "-a", kind: reflect.String},
-			{val: "", kind: reflect.String},
+			{Val: "-b", Kind: reflect.String},
+			{Val: "-a", Kind: reflect.String},
+			{Val: "", Kind: reflect.String},
 		},
 		opts: &OptionsTest{
 			Flagb:      true,
@@ -188,10 +188,10 @@ var testFnCases = []*testFnFlag{
 	},
 	{
 		input: []*FunctionArg{
-			{val: "--flagb", kind: reflect.String},
-			{val: "-a", kind: reflect.String},
-			{val: "text", kind: reflect.String},
-			{val: "non-flag-or-options", kind: reflect.String},
+			{Val: "--flagb", Kind: reflect.String},
+			{Val: "-a", Kind: reflect.String},
+			{Val: "text", Kind: reflect.String},
+			{Val: "non-flag-or-options", Kind: reflect.String},
 		},
 		opts: &OptionsTest{
 			Flagb:      true,
@@ -202,11 +202,11 @@ var testFnCases = []*testFnFlag{
 	},
 	{
 		input: []*FunctionArg{
-			{val: "--flaga", kind: reflect.String},
-			{val: "discard text", kind: reflect.String},
-			{val: "-a", kind: reflect.String},
-			{val: "text", kind: reflect.String},
-			{val: "non-flag-or-options", kind: reflect.String},
+			{Val: "--flaga", Kind: reflect.String},
+			{Val: "discard text", Kind: reflect.String},
+			{Val: "-a", Kind: reflect.String},
+			{Val: "text", Kind: reflect.String},
+			{Val: "non-flag-or-options", Kind: reflect.String},
 		},
 		opts: &OptionsTest{
 			Flaga:      "text",
@@ -216,11 +216,11 @@ var testFnCases = []*testFnFlag{
 	},
 	{
 		input: []*FunctionArg{
-			{val: "-c", kind: reflect.String},
-			{val: int64(873), kind: reflect.Int64},
-			{val: "-a", kind: reflect.String},
-			{val: "text", kind: reflect.String},
-			{val: "non-flag-or-options", kind: reflect.String},
+			{Val: "-c", Kind: reflect.String},
+			{Val: int64(873), Kind: reflect.Int64},
+			{Val: "-a", Kind: reflect.String},
+			{Val: "text", Kind: reflect.String},
+			{Val: "non-flag-or-options", Kind: reflect.String},
 		},
 		opts: &OptionsTest{
 			Flaga:      "text",
@@ -231,13 +231,13 @@ var testFnCases = []*testFnFlag{
 	},
 	{
 		input: []*FunctionArg{
-			{val: "-c", kind: reflect.String},
-			{val: int64(12), kind: reflect.Int64},
-			{val: "--flagc", kind: reflect.String},
-			{val: int64(873), kind: reflect.Int64},
-			{val: "-a", kind: reflect.String},
-			{val: "text of text", kind: reflect.String},
-			{val: "non-flag-or-options", kind: reflect.String},
+			{Val: "-c", Kind: reflect.String},
+			{Val: int64(12), Kind: reflect.Int64},
+			{Val: "--flagc", Kind: reflect.String},
+			{Val: int64(873), Kind: reflect.Int64},
+			{Val: "-a", Kind: reflect.String},
+			{Val: "text of text", Kind: reflect.String},
+			{Val: "non-flag-or-options", Kind: reflect.String},
 		},
 		opts: &OptionsTest{
 			Flaga:      "text of text",
@@ -248,15 +248,15 @@ var testFnCases = []*testFnFlag{
 	},
 	{
 		input: []*FunctionArg{
-			{val: "-d", kind: reflect.String},
-			{val: 1.2, kind: reflect.Float64},
-			{val: "non1", kind: reflect.String},
-			{val: "non2", kind: reflect.String},
-			{val: "--flage", kind: reflect.String},
-			{val: int64(22), kind: reflect.Int64},
-			{val: "-e", kind: reflect.String},
-			{val: int64(42), kind: reflect.Int64},
-			{val: "non3", kind: reflect.String},
+			{Val: "-d", Kind: reflect.String},
+			{Val: 1.2, Kind: reflect.Float64},
+			{Val: "non1", Kind: reflect.String},
+			{Val: "non2", Kind: reflect.String},
+			{Val: "--flage", Kind: reflect.String},
+			{Val: int64(22), Kind: reflect.Int64},
+			{Val: "-e", Kind: reflect.String},
+			{Val: int64(42), Kind: reflect.Int64},
+			{Val: "non3", Kind: reflect.String},
 		},
 		opts: &OptionsTest{
 			Flagd: 1.2,
@@ -266,13 +266,13 @@ var testFnCases = []*testFnFlag{
 	},
 	{
 		input: []*FunctionArg{
-			{val: "--flagf", kind: reflect.String},
-			{val: int64(99), kind: reflect.Int64},
-			{val: "-f", kind: reflect.String},
-			{val: 2.2, kind: reflect.Float64},
-			{val: "-f", kind: reflect.String},
-			{val: "text", kind: reflect.String},
-			{val: "non3", kind: reflect.String},
+			{Val: "--flagf", Kind: reflect.String},
+			{Val: int64(99), Kind: reflect.Int64},
+			{Val: "-f", Kind: reflect.String},
+			{Val: 2.2, Kind: reflect.Float64},
+			{Val: "-f", Kind: reflect.String},
+			{Val: "text", Kind: reflect.String},
+			{Val: "non3", Kind: reflect.String},
 		},
 		opts: &OptionsTest{
 			Flagf: []interface{}{int64(99), 2.2, "text"},
@@ -281,13 +281,13 @@ var testFnCases = []*testFnFlag{
 	},
 	{
 		input: []*FunctionArg{
-			{val: "--flagg", kind: reflect.String},
-			{val: map[string]int64{"99": int64(99)}, kind: reflect.Map},
-			{val: "-g", kind: reflect.String},
-			{val: map[string]string{"2.2": "abc"}, kind: reflect.Map},
-			{val: "-g", kind: reflect.String},
-			{val: "text:2.3", kind: reflect.String},
-			{val: "non3", kind: reflect.String},
+			{Val: "--flagg", Kind: reflect.String},
+			{Val: map[string]int64{"99": int64(99)}, Kind: reflect.Map},
+			{Val: "-g", Kind: reflect.String},
+			{Val: map[string]string{"2.2": "abc"}, Kind: reflect.Map},
+			{Val: "-g", Kind: reflect.String},
+			{Val: "text:2.3", Kind: reflect.String},
+			{Val: "non3", Kind: reflect.String},
 		},
 		opts: &OptionsTest{
 			Flagg: map[string]interface{}{"99": int64(99), "2.2": "abc", "text": 2.3},
@@ -296,12 +296,12 @@ var testFnCases = []*testFnFlag{
 	},
 	{
 		input: []*FunctionArg{
-			{val: "-h", kind: reflect.String},
-			{val: "123:abc", kind: reflect.String},
-			{val: "-h", kind: reflect.String},
-			{val: "123:3.42", kind: reflect.String},
-			{val: "--header", kind: reflect.String},
-			{val: "abc:99312", kind: reflect.String},
+			{Val: "-h", Kind: reflect.String},
+			{Val: "123:abc", Kind: reflect.String},
+			{Val: "-h", Kind: reflect.String},
+			{Val: "123:3.42", Kind: reflect.String},
+			{Val: "--header", Kind: reflect.String},
+			{Val: "abc:99312", Kind: reflect.String},
 		},
 		opts: &OptionsTest{
 			Header: map[string][]string{
@@ -312,16 +312,16 @@ var testFnCases = []*testFnFlag{
 	},
 	{
 		input: []*FunctionArg{
-			{val: "--header", kind: reflect.String},
-			{val: "abc:99312", kind: reflect.String},
-			{val: "-m", kind: reflect.String},
-			{val: "abc:123", kind: reflect.String},
-			{val: "-m", kind: reflect.String},
-			{val: "123:false", kind: reflect.String},
-			{val: "-m", kind: reflect.String},
-			{val: "123:1.23", kind: reflect.String},
-			{val: "-m", kind: reflect.String},
-			{val: "true:xyz", kind: reflect.String},
+			{Val: "--header", Kind: reflect.String},
+			{Val: "abc:99312", Kind: reflect.String},
+			{Val: "-m", Kind: reflect.String},
+			{Val: "abc:123", Kind: reflect.String},
+			{Val: "-m", Kind: reflect.String},
+			{Val: "123:false", Kind: reflect.String},
+			{Val: "-m", Kind: reflect.String},
+			{Val: "123:1.23", Kind: reflect.String},
+			{Val: "-m", Kind: reflect.String},
+			{Val: "true:xyz", Kind: reflect.String},
 		},
 		opts: &OptionsTest{
 			Header: map[string][]string{
@@ -336,15 +336,15 @@ var testFnCases = []*testFnFlag{
 	},
 	{
 		input: []*FunctionArg{
-			{val: "--header", kind: reflect.String},
-			{val: "abc:99312", kind: reflect.String},
-			{val: "-m", kind: reflect.String},
+			{Val: "--header", Kind: reflect.String},
+			{Val: "abc:99312", Kind: reflect.String},
+			{Val: "-m", Kind: reflect.String},
 			{
-				val: map[interface{}][]interface{}{
+				Val: map[interface{}][]interface{}{
 					"xyz": {int64(852), 1.6, "ioy"},
 					1.45:  {"hol", int64(93), true},
 				},
-				kind: reflect.Map,
+				Kind: reflect.Map,
 			},
 		},
 		opts: &OptionsTest{

@@ -234,8 +234,8 @@ func (flag *Flag) Set(field reflect.Value, val string, nextArg interface{}, next
 }
 
 type FunctionArg struct {
-	val  interface{}
-	kind reflect.Kind
+	Val  interface{}
+	Kind reflect.Kind
 }
 
 type Flags struct {
@@ -332,17 +332,24 @@ func (flags *Flags) parseInternal(args []string, fnArgs []*FunctionArg) (v inter
 		return nil, err
 	}
 	var (
-		flag      *Flag
-		remaining []interface{}
-		fval      string
-		val       = reflect.New(flags.Result).Elem()
-		length    = len(args)
-		arg       interface{}
-		sarg      string
-		narg      interface{}
-		nargk     reflect.Kind
-		field     reflect.Value
+		flag   *Flag
+		fval   string
+		val    = reflect.New(flags.Result).Elem()
+		length = len(args)
+		arg    interface{}
+		sarg   string
+		narg   interface{}
+		nargk  reflect.Kind
+		field  reflect.Value
 	)
+	// check Args arguments
+	argsField := val.FieldByName("Args")
+	if !argsField.CanSet() || argsField.Kind() != reflect.Slice {
+		err = fmt.Errorf("options %s must defined field Args type slice", flags.Result.Name())
+		return
+	}
+	argsKind := argsField.Type().Elem().Kind()
+
 	if length == 0 {
 		length = len(fnArgs)
 	}
@@ -350,15 +357,22 @@ func (flags *Flags) parseInternal(args []string, fnArgs []*FunctionArg) (v inter
 		if args != nil {
 			arg, sarg = args[i], args[i]
 		} else {
-			arg = fnArgs[i].val
-			if fnArgs[i].kind == reflect.String {
+			arg = fnArgs[i].Val
+			if fnArgs[i].Kind == reflect.String {
 				sarg = arg.(string)
 			}
 		}
 		if flag, fval, err = flags.checkFlag(sarg); err != nil {
 			return
 		} else if flag == nil {
-			remaining = append(remaining, arg)
+			if args != nil {
+				if arg, err = parseFlagValue(argsKind, sarg); err != nil {
+					return nil, err
+				}
+			} else if nargk = reflect.ValueOf(arg).Kind(); nargk != argsKind && argsKind != reflect.Interface {
+				return nil, fmt.Errorf("wrong argument %v type %s required type %s", arg, nargk, argsKind)
+			}
+			argsField.Set(reflect.Append(argsField, reflect.ValueOf(arg)))
 			continue
 		}
 		// find field in struct with tag that belong to the flag
@@ -374,8 +388,8 @@ func (flags *Flags) parseInternal(args []string, fnArgs []*FunctionArg) (v inter
 				narg = args[n]
 				nargk = reflect.String
 			} else {
-				narg = fnArgs[n].val
-				nargk = fnArgs[n].kind
+				narg = fnArgs[n].Val
+				nargk = fnArgs[n].Kind
 			}
 		}
 		if inc, err := flag.Set(field, fval, narg, nargk); err != nil {
@@ -383,14 +397,6 @@ func (flags *Flags) parseInternal(args []string, fnArgs []*FunctionArg) (v inter
 		} else if inc {
 			i = n
 		}
-	}
-	if len(remaining) > 0 {
-		field := val.FieldByName("Args")
-		if !field.CanSet() || field.Kind() != reflect.Slice || field.Type().Elem().Kind() != reflect.Interface {
-			err = fmt.Errorf("options %s must defined field Args []interface{}", flags.Result.Name())
-			return
-		}
-		field.Set(reflect.ValueOf(remaining))
 	}
 	v = val.Addr().Interface()
 	return
