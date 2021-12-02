@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/cozees/cook/pkg/cook/token"
+	"github.com/cozees/cook/pkg/runtime/args"
 )
 
 func convertToNum(s string) (interface{}, reflect.Kind) {
@@ -269,6 +270,20 @@ func expandArrayTo(ctx cookContext, rv reflect.Value, array []string) []string {
 		default:
 			i := v.Interface()
 			array = append(array, convertToString(ctx, i, reflect.ValueOf(i).Kind()))
+		}
+	}
+	return array
+}
+
+func expandArrayToFuncArgs(ctx cookContext, rv reflect.Value, array []*args.FunctionArg) []*args.FunctionArg {
+	for i := 0; i < rv.Len(); i++ {
+		v := rv.Index(i)
+		switch v.Kind() {
+		case reflect.Array, reflect.Slice:
+			array = expandArrayToFuncArgs(ctx, v, array)
+		default:
+			i := v.Interface()
+			array = append(array, &args.FunctionArg{Val: i, Kind: reflect.ValueOf(i).Kind()})
 		}
 	}
 	return array

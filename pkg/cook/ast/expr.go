@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/cozees/cook/pkg/cook/token"
+	"github.com/cozees/cook/pkg/runtime/args"
 )
 
 //
@@ -545,7 +546,7 @@ func (c *CallExpr) evaluate(ctx cookContext) (v interface{}, vk reflect.Kind) {
 			f := ctx.getFunction(c.Name)
 			if f == nil {
 				ctx.onError(fmt.Errorf("target %s is not exist", v))
-			} else if args := c.args(ctx); !ctx.hasCanceled() {
+			} else if args := c.funcArgs(ctx); !ctx.hasCanceled() {
 				if v, err = f.Apply(args); err != nil {
 					ctx.onError(err)
 				} else {
@@ -559,6 +560,21 @@ func (c *CallExpr) evaluate(ctx cookContext) (v interface{}, vk reflect.Kind) {
 		panic("call expression kind must either @ or #")
 	}
 	return nil, reflect.Invalid
+}
+
+func (c *CallExpr) funcArgs(ctx cookContext) []*args.FunctionArg {
+	sargs := make([]*args.FunctionArg, 0, len(c.Args))
+	for _, arg := range c.Args {
+		if v, vk := arg.evaluate(ctx); !ctx.hasCanceled() {
+			switch vk {
+			case reflect.Array, reflect.Slice:
+				sargs = expandArrayToFuncArgs(ctx, reflect.ValueOf(v), sargs)
+			default:
+				sargs = append(sargs, &args.FunctionArg{Val: v, Kind: vk})
+			}
+		}
+	}
+	return sargs
 }
 
 func (c *CallExpr) args(ctx cookContext) []string {

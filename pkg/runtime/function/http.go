@@ -2,91 +2,61 @@ package function
 
 import (
 	"bytes"
-	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"strings"
+	"reflect"
+
+	"github.com/cozees/cook/pkg/runtime/args"
 )
 
-type httpHeader http.Header
-
-func (h *httpHeader) String() string {
-	sb := strings.Builder{}
-	for k, v := range *h {
-		sb.WriteString(k)
-		sb.WriteString(": ")
-		sb.WriteString(strings.Join(v, "; "))
-	}
-	return sb.String()
-}
-
-func (h *httpHeader) Set(s string) error {
-	ss := strings.Split(s, ":")
-	if *h == nil {
-		*h = make(httpHeader)
-	}
-	http.Header(*h).Add(ss[0], ss[1])
-	return nil
-}
-
 type httpOption struct {
-	header  httpHeader
-	data    string
-	dataSet bool
-	args    []string
-	*options
+	Header       http.Header `flag:"header"`
+	File         string      `flag:"file"`
+	Data         string      `flag:"data"`
+	Restriction  bool        `flag:"strict"`
+	IsMetionData bool        `mention:"data"` // true if argument flag data is given even the value is zero/empty string ""
+	Args         []string
 }
 
-func (ho *httpOption) reset() {
-	ho.header = nil
-	ho.args = nil
-	ho.data = ""
-	ho.dataSet = false
-}
-
-func (ho *httpOption) copy() interface{} {
-	return &httpOption{
-		header:  ho.header,
-		data:    ho.data,
-		dataSet: ho.dataSet,
-		args:    ho.options.args,
+func (ho *httpOption) validate(name string) (string, error) {
+	if len(ho.Args) != 1 {
+		return "", fmt.Errorf("function %s required one last argument as URL", name)
+	} else {
+		return ho.Args[0], nil
 	}
 }
 
-func (ho *httpOption) flagHeader(fs *flag.FlagSet) {
-	fs.Var(&ho.header, "h", "custom http header to be include or override existing header in the request")
+const (
+	headerDesc = `custom http header to be include or override existing header in the request.`
+	dataDesc   = `string data to be sent to the server.`
+	fileDesc   = `a path to a file which it's content is being used as the data to send to the server. 
+				  Note: if both flag "file" and "data" is given at the same time then flag "file" is used instead of "data".`
+	strictDesc = `enforce the http request and response to follow the standard of http definition for each method.`
+
+	// Common introduction for any http function
+	baseFnDesc = `Send an http request to the server at [URL] and return a response map which contain
+			  	  two key "header" and "body". The "header" is a map of response header where the "body"
+				  is a reader object if there is data in the body.`
+	largeBodyDesc = `function can be use with redirect statement as well as assign statement. 
+			 		 However if the data from the function is too large it's better to use redirect
+					 statement to store the data in a file instead.`
+	noBodyRespDesc = `request should not have response body thus if the a restriction flag is given the
+					  function will cause program to halt the execution otherwise a warning message is
+					  written to standard output instead.`
+)
+
+var httpNoBodyFlags = []*args.Flag{
+	{Short: "h", Long: "header", Description: headerDesc},
+	{Long: "strict", Description: strictDesc},
 }
 
-func (ho *httpOption) validate(gf *GeneralFunction) error {
-	if len(ho.args) != 1 {
-		return fmt.Errorf("%s function required a single url argument", gf.name)
-	}
-	return nil
-}
-
-func (ho *httpOption) Parse(fs *flag.FlagSet, args []string) (i interface{}, err error) {
-	if i, err = ho.options.Parse(fs, args); err == nil {
-		opts := i.(*httpOption)
-		opts.dataSet = false
-		fs.Visit(func(f *flag.Flag) {
-			if f.Name == "d" {
-				opts.dataSet = true
-			}
-		})
-	}
-	return
-}
-
-func newHttpOptions(fs *flag.FlagSet, wantBody bool) *httpOption {
-	opts := &httpOption{}
-	opts.options = &options{opts: opts}
-	opts.flagHeader(fs)
-	if wantBody {
-		flagString(fs, &opts.data, "d", string([]byte{0}), "post data as a string or a path to file if it start with @")
-	}
-	return opts
+var httpFlags = []*args.Flag{
+	{Short: "h", Long: "header", Description: headerDesc},
+	{Short: "d", Long: "data", Description: dataDesc},
+	{Short: "f", Long: "file", Description: fileDesc},
+	{Long: "strict", Description: strictDesc},
 }
 
 type readerCloser struct {
@@ -109,11 +79,13 @@ var returnFunc = func(resp *http.Response, canHasResponseBody bool) interface{} 
 	return nil
 }
 
-func httpRequest(gf *GeneralFunction, i interface{}, method string) (result interface{}, err error) {
+func httpRequest(bf Function, i interface{}, method string) (result interface{}, err error) {
 	opts := i.(*httpOption)
-	if err = opts.validate(gf); err != nil {
+	url, err := opts.validate(bf.Name())
+	if err != nil {
 		return nil, err
 	}
+
 	var resp *http.Response
 	var req *http.Request
 	var body io.ReadSeekCloser
@@ -121,34 +93,26 @@ func httpRequest(gf *GeneralFunction, i interface{}, method string) (result inte
 	switch method {
 	case http.MethodOptions, http.MethodGet:
 		canResponseHasBody = true
-	case http.MethodDelete:
-		canResponseHasBody = true
-		if opts.data == "" {
-			goto createreq
-		}
-		fallthrough
-	case http.MethodPost, http.MethodPatch:
+	case http.MethodDelete, http.MethodPost, http.MethodPatch:
 		canResponseHasBody = true
 		fallthrough
 	case http.MethodPut:
-		if opts.dataSet {
-			if strings.HasPrefix(opts.data, "@") {
-				body, err = os.Open(opts.data)
-				if err != nil {
-					return nil, err
-				}
-			} else {
-				body = &readerCloser{Reader: bytes.NewReader([]byte(opts.data))}
+		if opts.File != "" {
+			body, err = os.Open(opts.File)
+			if err != nil {
+				return nil, err
 			}
+		} else if opts.IsMetionData {
+			body = &readerCloser{Reader: bytes.NewReader([]byte(opts.Data))}
 		}
 	}
-createreq:
-	if req, err = http.NewRequest(method, opts.args[0], body); err != nil {
+
+	if req, err = http.NewRequest(method, url, body); err != nil {
 		return nil, err
 	}
 	// set header if available
-	if opts.header != nil {
-		req.Header = http.Header(opts.header)
+	if opts.Header != nil {
+		req.Header = http.Header(opts.Header)
 	}
 	if body != nil && req.Header.Get("Content-Type") == "" {
 		req.Header.Set("Content-Type", detectContentType(body))
@@ -162,64 +126,108 @@ createreq:
 	case resp.StatusCode < 300:
 		return nil, nil
 	default:
-		return nil, fmt.Errorf("server report %d on get %s", resp.StatusCode, opts.args[0])
+		return nil, fmt.Errorf("server report %d on get %s", resp.StatusCode, url)
 	}
 }
 
+var httpOptsType = reflect.TypeOf((*httpOption)(nil)).Elem()
+
+var getFlags = &args.Flags{
+	Flags:       httpNoBodyFlags,
+	Result:      httpOptsType,
+	FuncName:    "get",
+	ShortDesc:   "send http get request",
+	Usage:       "@get [-h key:val [-h key:value] ...] URL",
+	Example:     "@get -h X-Sample:123 https://www.example.com",
+	Description: baseFnDesc + " @get " + largeBodyDesc,
+}
+
+var headFlags = &args.Flags{
+	Flags:       httpNoBodyFlags,
+	Result:      httpOptsType,
+	FuncName:    "head",
+	ShortDesc:   "send http head request",
+	Usage:       "@head [-h key:val [-h key:value] ...] URL",
+	Example:     "@head -h X-Sample:123 https://www.example.com",
+	Description: baseFnDesc + " Note: By standard, head " + noBodyRespDesc,
+}
+
+var optionsFlags = &args.Flags{
+	Flags:       httpNoBodyFlags,
+	Result:      httpOptsType,
+	FuncName:    "options",
+	ShortDesc:   "send http options request",
+	Usage:       "@options [-h key:val [-h key:value] ...] URL",
+	Example:     "@options -h X-Sample:123 https://www.example.com",
+	Description: baseFnDesc + " @option " + largeBodyDesc,
+}
+
+var postFlags = &args.Flags{
+	Flags:       httpFlags,
+	Result:      httpOptsType,
+	FuncName:    "post",
+	ShortDesc:   "send http post request",
+	Usage:       "@post [-h key:val [-h key:value] ...] [-d data] [-f file] URL",
+	Example:     "@post -h Content-Type:application/json -d '{\"key\":123}' https://www.example.com",
+	Description: baseFnDesc + " @post " + largeBodyDesc,
+}
+
+var patchFlags = &args.Flags{
+	Flags:       httpFlags,
+	Result:      httpOptsType,
+	FuncName:    "patch",
+	ShortDesc:   "send http patch request",
+	Usage:       "@patch [-h key:val [-h key:value] ...] [-d data] [-f file] URL",
+	Example:     "@patch -h Content-Type:application/json -d '{\"key\":123}' https://www.example.com",
+	Description: baseFnDesc + " @patch " + largeBodyDesc,
+}
+
+var putFlags = &args.Flags{
+	Flags:       httpFlags,
+	Result:      httpOptsType,
+	FuncName:    "put",
+	ShortDesc:   "send http put request",
+	Usage:       "@put [-h key:val [-h key:value] ...] [-d data] [-f file] URL",
+	Example:     "@put -h Content-Type:application/json -d '{\"key\":123}' https://www.example.com",
+	Description: baseFnDesc + " Note: By standard, put " + noBodyRespDesc,
+}
+
+var deleteFlags = &args.Flags{
+	Flags:       httpFlags,
+	Result:      httpOptsType,
+	FuncName:    "delete",
+	ShortDesc:   "send http delete request",
+	Usage:       "@delete [-h key:val [-h key:value] ...] [-d data] [-f file] URL",
+	Example:     "@delete -h Content-Type:application/json -d '{\"key\":123}' https://www.example.com",
+	Description: baseFnDesc + " @delete " + largeBodyDesc,
+}
+
 func init() {
-	registerFunction(&GeneralFunction{
-		name:     "get", // @get -h k:v -h k:v http://www.example.com
-		flagInit: func(fs *flag.FlagSet) Option { return newHttpOptions(fs, false) },
-		handler: func(gf *GeneralFunction, i interface{}) (result interface{}, err error) {
-			return httpRequest(gf, i, http.MethodGet)
-		},
-	})
+	registerFunction(NewBaseFunction(getFlags, func(f Function, i interface{}) (interface{}, error) {
+		return httpRequest(f, i, http.MethodGet)
+	}, "fetch"))
 
-	registerFunction(&GeneralFunction{
-		name:     "head",
-		flagInit: func(fs *flag.FlagSet) Option { return newHttpOptions(fs, false) },
-		handler: func(gf *GeneralFunction, i interface{}) (result interface{}, err error) {
-			return httpRequest(gf, i, http.MethodHead)
-		},
-	})
+	registerFunction(NewBaseFunction(headFlags, func(f Function, i interface{}) (interface{}, error) {
+		return httpRequest(f, i, http.MethodHead)
+	}))
 
-	registerFunction(&GeneralFunction{
-		name:     "options",
-		flagInit: func(fs *flag.FlagSet) Option { return newHttpOptions(fs, false) },
-		handler: func(gf *GeneralFunction, i interface{}) (result interface{}, err error) {
-			return httpRequest(gf, i, http.MethodOptions)
-		},
-	})
+	registerFunction(NewBaseFunction(optionsFlags, func(f Function, i interface{}) (interface{}, error) {
+		return httpRequest(f, i, http.MethodOptions)
+	}))
 
-	registerFunction(&GeneralFunction{
-		name:     "post", // @post -h k:v -d {@file|string} http://www.example.com
-		flagInit: func(fs *flag.FlagSet) Option { return newHttpOptions(fs, true) },
-		handler: func(gf *GeneralFunction, i interface{}) (result interface{}, err error) {
-			return httpRequest(gf, i, http.MethodPost)
-		},
-	})
+	registerFunction(NewBaseFunction(postFlags, func(f Function, i interface{}) (interface{}, error) {
+		return httpRequest(f, i, http.MethodPost)
+	}))
 
-	registerFunction(&GeneralFunction{
-		name:     "patch",
-		flagInit: func(fs *flag.FlagSet) Option { return newHttpOptions(fs, true) },
-		handler: func(gf *GeneralFunction, i interface{}) (result interface{}, err error) {
-			return httpRequest(gf, i, http.MethodPatch)
-		},
-	})
+	registerFunction(NewBaseFunction(patchFlags, func(f Function, i interface{}) (interface{}, error) {
+		return httpRequest(f, i, http.MethodPatch)
+	}))
 
-	registerFunction(&GeneralFunction{
-		name:     "put",
-		flagInit: func(fs *flag.FlagSet) Option { return newHttpOptions(fs, true) },
-		handler: func(gf *GeneralFunction, i interface{}) (result interface{}, err error) {
-			return httpRequest(gf, i, http.MethodPut)
-		},
-	})
+	registerFunction(NewBaseFunction(putFlags, func(f Function, i interface{}) (interface{}, error) {
+		return httpRequest(f, i, http.MethodPut)
+	}))
 
-	registerFunction(&GeneralFunction{
-		name:     "delete",
-		flagInit: func(fs *flag.FlagSet) Option { return newHttpOptions(fs, true) },
-		handler: func(gf *GeneralFunction, i interface{}) (result interface{}, err error) {
-			return httpRequest(gf, i, http.MethodDelete)
-		},
-	})
+	registerFunction(NewBaseFunction(deleteFlags, func(f Function, i interface{}) (interface{}, error) {
+		return httpRequest(f, i, http.MethodDelete)
+	}))
 }

@@ -13,58 +13,59 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cozees/cook/pkg/runtime/args"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type caseInOut struct {
-	args   []string
+	args   []*args.FunctionArg
 	output interface{}
 }
 
 var splitCase = []*caseInOut{
 	{
-		args:   []string{"-by", ".", "53.24.0"},
+		args:   convertToFunctionArgs([]string{"--by", ".", "53.24.0"}),
 		output: []interface{}{"53", "24", "0"},
 	},
 	{
-		args: []string{"-S", "-L", "A yo-yo is a toy consisting of an axle connected to two disks"},
+		args: convertToFunctionArgs([]string{"--ws", "-l", "A yo-yo is a toy consisting of an axle connected to two disks"}),
 		output: []interface{}{
 			[]interface{}{"A", "yo-yo", "is", "a", "toy", "consisting", "of", "an", "axle", "connected", "to", "two", "disks"},
 		},
 	},
 	{
-		args: []string{"-S", "-L", "A yo-yo is a toy consisting of\nan axle connected to two disks"},
+		args: convertToFunctionArgs([]string{"--ws", "-l", "A yo-yo is a toy consisting of\nan axle connected to two disks"}),
 		output: []interface{}{
 			[]interface{}{"A", "yo-yo", "is", "a", "toy", "consisting", "of"},
 			[]interface{}{"an", "axle", "connected", "to", "two", "disks"},
 		},
 	},
 	{
-		args: []string{"-by", ",*", "-L", "A yo-yo is,* a toy consisting of\nan axle connected,* to two disks"},
+		args: convertToFunctionArgs([]string{"--by", ",*", "-l", "A yo-yo is,* a toy consisting of\nan axle connected,* to two disks"}),
 		output: []interface{}{
 			[]interface{}{"A yo-yo is", " a toy consisting of"},
 			[]interface{}{"an axle connected", " to two disks"},
 		},
 	},
 	{
-		args:   []string{"-by", ",*", "-L", "-rc", "1:0", "A yo-yo is,* a toy consisting of\nan axle connected,* to two disks"},
+		args:   convertToFunctionArgs([]string{"--by", ",*", "-l", "--rc", "1:0", "A yo-yo is,* a toy consisting of\nan axle connected,* to two disks"}),
 		output: "an axle connected",
 	},
 	{
-		args:   []string{"-S", "-L", "-rc", "1:0", "A yo-yo is a toy consisting of\nan axle connected to two disks"},
+		args:   convertToFunctionArgs([]string{"--ws", "-l", "--rc", "1:0", "A yo-yo is a toy consisting of\nan axle connected to two disks"}),
 		output: "an",
 	},
 	{
-		args:   []string{"-S", "-L", "-rc", "1", "A yo-yo is a toy consisting of\nan axle connected to two disks"},
+		args:   convertToFunctionArgs([]string{"--ws", "-l", "--rc", "1", "A yo-yo is a toy consisting of\nan axle connected to two disks"}),
 		output: []interface{}{"an", "axle", "connected", "to", "two", "disks"},
 	},
 	{
-		args:   []string{"-S", "-L", "-rc", ":1", "A yo-yo is a toy consisting of\nan axle connected to two disks"},
+		args:   convertToFunctionArgs([]string{"--ws", "-l", "--rc", ":1", "A yo-yo is a toy consisting of\nan axle connected to two disks"}),
 		output: []interface{}{"yo-yo", "axle"},
 	},
 	{
-		args:   []string{"-reg", "\\s", "A yo-yo is a toy consisting of\nan axle connected to two disks"},
+		args:   convertToFunctionArgs([]string{"--regx", "\\s", "A yo-yo is a toy consisting of\nan axle connected to two disks"}),
 		output: []string{"A", "yo-yo", "is", "a", "toy", "consisting", "of", "an", "axle", "connected", "to", "two", "disks"},
 	},
 }
@@ -85,43 +86,43 @@ func TestSplit(t *testing.T) {
 
 var paddingCase = []*caseInOut{
 	{
-		args:   []string{"-l", "2", "-by", "0", "ax"},
+		args:   convertToFunctionArgs([]string{"-l", "2", "--by", "0", "ax"}),
 		output: "00ax",
 	},
 	{
-		args:   []string{"-l", "2", "-by", "0", "ax", "ko"},
+		args:   convertToFunctionArgs([]string{"-l", "2", "--by", "0", "ax", "ko"}),
 		output: []string{"00ax", "00ko"},
 	},
 	{
-		args:   []string{"-l", "1", "-r", "3", "-by", "0", "ax"},
+		args:   convertToFunctionArgs([]string{"-l", "1", "-r", "3", "--by", "0", "ax"}),
 		output: "0ax000",
 	},
 	{
-		args:   []string{"-l", "1", "-r", "3", "-by", "0", "ax", "kl", "long text"},
+		args:   convertToFunctionArgs([]string{"-l", "1", "-r", "3", "--by", "0", "ax", "kl", "long text"}),
 		output: []string{"0ax000", "0kl000", "0long text000"},
 	},
 	{
-		args:   []string{"-l", "1", "-r", "3", "-by", "0", "-m", "10", "ax"},
+		args:   convertToFunctionArgs([]string{"-l", "1", "-r", "3", "--by", "0", "-m", "10", "ax"}),
 		output: "0ax000",
 	},
 	{
-		args:   []string{"-l", "1", "-r", "3", "-by", "0", "-m", "6", "ax"},
+		args:   convertToFunctionArgs([]string{"-l", "1", "-r", "3", "--by", "0", "-m", "6", "ax"}),
 		output: "0ax000",
 	},
 	{
-		args:   []string{"-l", "1", "-r", "3", "-by", "0", "-m", "5", "ax"},
+		args:   convertToFunctionArgs([]string{"-l", "1", "-r", "3", "--by", "0", "-m", "5", "ax"}),
 		output: "0ax00",
 	},
 	{
-		args:   []string{"-l", "1", "-by", "0", "-m", "2", "ax"},
+		args:   convertToFunctionArgs([]string{"-l", "1", "--by", "0", "-m", "2", "ax"}),
 		output: "ax",
 	},
 	{
-		args:   []string{"-l", "1", "-by", "0", "-m", "2", "a"},
+		args:   convertToFunctionArgs([]string{"-l", "1", "--by", "0", "-m", "2", "a"}),
 		output: "0a",
 	},
 	{
-		args:   []string{"-l", "1", "-by", "0", "-m", "3", "ax"},
+		args:   convertToFunctionArgs([]string{"-l", "1", "--by", "0", "-m", "3", "ax"}),
 		output: "0ax",
 	},
 }
@@ -151,23 +152,23 @@ reiciendis voluptatibus maiores alias consequatur aut perferendis doloribus aspe
 
 var replaceCase = []*caseInOut{
 	{
-		args:   []string{"abc", "xyz", "At vero eos et accusamus et iusto odio"},
+		args:   convertToFunctionArgs([]string{"abc", "xyz", "At vero eos et accusamus et iusto odio"}),
 		output: "At vero eos et accusamus et iusto odio",
 	},
 	{
-		args:   []string{"eos", "xyz", "At vero eos et accusamus et iusto odio"},
+		args:   convertToFunctionArgs([]string{"eos", "xyz", "At vero eos et accusamus et iusto odio"}),
 		output: "At vero xyz et accusamus et iusto odio",
 	},
 	{
-		args:   []string{".t", "xyz", "At vero eos et accusamus et iusto odio"},
+		args:   convertToFunctionArgs([]string{".t", "xyz", "At vero eos et accusamus et iusto odio"}),
 		output: "At vero eos et accusamus et iusto odio",
 	},
 	{
-		args:   []string{"-e", ".t", "xyz", "At vero eos et accusamus et iusto odio"},
+		args:   convertToFunctionArgs([]string{"-x", ".t", "xyz", "At vero eos et accusamus et iusto odio"}),
 		output: "xyz vero eos xyz accusamus xyz iuxyzo odio",
 	},
 	{
-		args:   []string{"-e", ".(t)", "x${1}yz", "At vero eos et accusamus et iusto odio"},
+		args:   convertToFunctionArgs([]string{"-x", ".(t)", "x${1}yz", "At vero eos et accusamus et iusto odio"}),
 		output: "xtyz vero eos xtyz accusamus xtyz iuxtyzo odio",
 	},
 }
@@ -270,11 +271,11 @@ func TestReplace(t *testing.T) {
 	}
 	// test non regular expression
 	ofile := "result-" + f
-	testFileArgs := [][]string{
-		{"accusamus", "aac", "@" + f},
-		{"-L", "12,35", "accusamus", "aac", "@" + f},
-		{"-e", "et.?", "*${1}*", "@" + f, "@" + ofile},
-		{"-e", "-L", "22,13,32,14", "et.?", "*${1}*", "@" + f, "@" + ofile},
+	testFileArgs := [][]*args.FunctionArg{
+		convertToFunctionArgs([]string{"accusamus", "aac", "@" + f}),
+		convertToFunctionArgs([]string{"-l", "12,35", "accusamus", "aac", "@" + f}),
+		convertToFunctionArgs([]string{"-x", "et.?", "*${1}*", "@" + f, "@" + ofile}),
+		convertToFunctionArgs([]string{"-x", "-l", "22,13,32,14", "et.?", "*${1}*", "@" + f, "@" + ofile}),
 	}
 	defer os.Remove(ofile)
 	for _, args := range testFileArgs {
@@ -282,24 +283,28 @@ func TestReplace(t *testing.T) {
 		out, err := fn.Apply(args)
 		assert.NoError(t, err)
 		assert.Nil(t, out)
-		bout, err := ioutil.ReadFile(args[len(args)-1][1:])
+		bout, err := ioutil.ReadFile(args[len(args)-1].Val.(string)[1:])
 		assert.NoError(t, err)
 		var testResult = string(bout)
 		var expectStr string
-		if args[0] != "-e" {
-			if args[0] == "-L" {
-				expectStr = replaceAllAt(buf.String(), args[2], args[3], args[1])
+		if args[0].Val.(string) != "-x" {
+			if args[0].Val.(string) == "-l" {
+				expectStr = replaceAllAt(buf.String(), args[2].Val.(string), args[3].Val.(string), args[1].Val.(string))
 			} else {
-				expectStr = replaceAllAt(buf.String(), args[0], args[1], "")
+				expectStr = replaceAllAt(buf.String(), args[0].Val.(string), args[1].Val.(string), "")
 			}
 		} else {
-			if args[1] == "-L" {
-				expectStr = replaceRegExpAllAt(bufio.NewReader(bytes.NewReader(buf.Bytes())), args[3], args[4], args[2])
+			if args[1].Val.(string) == "-l" {
+				expectStr = replaceRegExpAllAt(bufio.NewReader(bytes.NewReader(buf.Bytes())), args[3].Val.(string), args[4].Val.(string), args[2].Val.(string))
 			} else {
-				expectStr = replaceRegExpAllAt(bufio.NewReader(bytes.NewReader(buf.Bytes())), args[1], args[2], "")
+				expectStr = replaceRegExpAllAt(bufio.NewReader(bytes.NewReader(buf.Bytes())), args[1].Val.(string), args[2].Val.(string), "")
 			}
 		}
-		assert.Equal(t, len(expectStr), len(testResult), "args: %s", strings.Join(args, " "))
+		sargs := make([]string, len(args))
+		for i, arg := range args {
+			sargs[i] = arg.Val.(string)
+		}
+		assert.Equal(t, len(expectStr), len(testResult), "args: %s", strings.Join(sargs, " "))
 		for offs, i := 0, 1048; true; offs, i = i, i+1048 {
 			if i < len(bout) {
 				require.Equal(t, expectStr[offs:i], testResult[offs:i], "segments %d:%d", offs, i)

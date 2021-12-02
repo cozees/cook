@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
 
+	"github.com/cozees/cook/pkg/runtime/args"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -86,7 +88,7 @@ func getTestServer() *httptest.Server {
 	}))
 }
 
-const jsonFile = "@sample"
+const jsonFile = "sample"
 const jsonContent = `{"mine": "memo", "kind":"cartoon"}`
 
 func TestMain(t *testing.M) {
@@ -108,65 +110,65 @@ func cleanupHttpTest() {
 }
 
 type httpTestInOut struct {
-	args    []string
+	args    []*args.FunctionArg
 	methods []string
 	err     bool
 	output  interface{}
 }
 
 var getTestCase = []httpTestInOut{
-	{
-		args:    []string{},
+	{ // case 1
+		args:    convertToFunctionArgs([]string{}),
 		methods: []string{http.MethodGet, http.MethodOptions},
 		output:  "R-Method: %s\nBody: TEXT",
 	},
-	{
-		args:    []string{},
+	{ // case 2
+		args:    convertToFunctionArgs([]string{}),
 		methods: []string{http.MethodHead},
 		output:  "R-Method: %s\n",
 	},
-	{
-		args:    []string{"-h", "X-SESSION-1:abc"},
+	{ // case 3
+		args:    convertToFunctionArgs([]string{"-h", "X-SESSION-1:abc"}),
 		methods: []string{http.MethodGet, http.MethodOptions},
 		output:  "R-Method: %s\nR-X-Session-1: abc\nBody: TEXT",
 	},
-	{
-		args:    []string{"-h", "X-SESSION-1:abc", "-h", "X-SESSION-1:123"},
+	{ // case 4
+		args:    convertToFunctionArgs([]string{"-h", "X-SESSION-1:abc", "-h", "X-SESSION-1:123"}),
 		methods: []string{http.MethodGet, http.MethodOptions},
 		output:  "R-Method: %s\nR-X-Session-1: abc; 123\nBody: TEXT",
 	},
-	{
-		args:    []string{"-h", "X-SESSION-1:abc", "-h", "X-SESSION-1:123", "-h", "X-SESSION-2:23.2"},
+	{ // case 5
+		args:    convertToFunctionArgs([]string{"-h", "X-SESSION-1:abc", "-h", "X-SESSION-1:123", "-h", "X-SESSION-2:23.2"}),
 		methods: []string{http.MethodGet, http.MethodOptions},
 		output:  "R-Method: %s\nR-X-Session-1: abc; 123\nR-X-Session-2: 23.2\nBody: TEXT",
 	},
-	{
-		args:    []string{"-h", "X-SESSION-1:abc", "-h", "X-SESSION-1:123", "-h", "X-SESSION-2:23.2"},
+	{ // case 6
+		args:    convertToFunctionArgs([]string{"-h", "X-SESSION-1:abc", "-h", "X-SESSION-1:123", "-h", "X-SESSION-2:23.2"}),
 		methods: []string{http.MethodHead},
 		output:  "R-Method: %s\nR-X-Session-1: abc; 123\nR-X-Session-2: 23.2\n",
 	},
-	{
-		args:    []string{"-d", "simple"},
+	{ // case 7
+		args:    convertToFunctionArgs([]string{"-d", "simple"}),
 		methods: []string{http.MethodPost, http.MethodPatch, http.MethodDelete},
 		output:  "R-Content-Type: application/octet-stream\nR-Method: %s\nsimple",
 	},
-	{
-		args:    []string{"-h", "Content-Type: text/plain", "-d", "simple"},
+	{ // case 8
+		args:    convertToFunctionArgs([]string{"-h", "Content-Type: text/plain", "-d", "simple"}),
 		methods: []string{http.MethodPost, http.MethodPatch, http.MethodDelete},
 		output:  "R-Content-Type: text/plain\nR-Method: %s\nsimple",
 	},
-	{
-		args:    []string{"-d", jsonFile},
+	{ // case 9
+		args:    convertToFunctionArgs([]string{"-f", jsonFile}),
 		methods: []string{http.MethodPost, http.MethodPatch, http.MethodDelete},
 		output:  "R-Content-Type: application/octet-stream\nR-Method: %s\n" + jsonContent,
 	},
-	{
-		args:    []string{"-h", "Content-Type: application/json; charset=utf-8", "-d", jsonFile},
+	{ // case 10
+		args:    convertToFunctionArgs([]string{"-h", "Content-Type: application/json; charset=utf-8", "-f", jsonFile}),
 		methods: []string{http.MethodPost, http.MethodPatch, http.MethodDelete},
 		output:  "R-Content-Type: application/json; charset=utf-8\nR-Method: %s\n" + jsonContent,
 	},
-	{
-		args:    []string{"-h", "Content-Type: application/json; charset=utf-8", "-d", jsonFile},
+	{ // case 11
+		args:    convertToFunctionArgs([]string{"-h", "Content-Type: application/json; charset=utf-8", "-f", jsonFile}),
 		methods: []string{http.MethodPut},
 		output:  "R-Body: " + jsonContent + "\nR-Content-Type: application/json; charset=utf-8\nR-Method: %s\n",
 	},
@@ -175,7 +177,10 @@ var getTestCase = []httpTestInOut{
 func TestHttpFunction(t *testing.T) {
 	server := getTestServer()
 	for i, tc := range getTestCase {
-		tc.args = append(tc.args, server.URL)
+		tc.args = append(tc.args, &args.FunctionArg{
+			Val:  server.URL,
+			Kind: reflect.String,
+		})
 		for _, method := range tc.methods {
 			fn := GetFunction(strings.ToLower(method))
 			t.Logf("TestGet case #%d (%s)", i+1, method)

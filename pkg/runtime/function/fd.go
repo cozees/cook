@@ -1,16 +1,17 @@
 package function
 
 import (
-	"flag"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	osu "os/user"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 
+	"github.com/cozees/cook/pkg/runtime/args"
 	"github.com/cozees/cook/pkg/runtime/parser"
 )
 
@@ -268,24 +269,24 @@ func readMode(file, givenMode string) (os.FileMode, error) {
 	return fm.Parse(mode, givenMode)
 }
 
-func readPath(gf *GeneralFunction, o *fdOptions, nonFlagCount, from int) ([]string, error) {
-	if remains := len(o.args); nonFlagCount != -1 && remains != nonFlagCount {
-		return nil, fmt.Errorf("%s required directory path to be provided", gf.name)
+func readPath(f Function, o *fdOptions, nonFlagCount, from int) ([]string, error) {
+	if remains := len(o.Args); nonFlagCount != -1 && remains != nonFlagCount {
+		return nil, fmt.Errorf("%s required directory path to be provided", f.Name())
 	} else if remains == 0 {
 		return nil, errMissingPath
 	} else if from > 0 {
-		return o.args[from:], nil
+		return o.Args[from:], nil
 	} else {
-		return o.args, nil
+		return o.Args, nil
 	}
 }
 
 func readUserGroup(o *fdOptions) (u int, g int, err error) {
 	u, g = -1, -1
-	if len(o.args) == 0 {
+	if len(o.Args) == 0 {
 		return u, g, fmt.Errorf("user or group is required")
 	}
-	raw := o.args[0]
+	raw := o.Args[0]
 	index := strings.IndexByte(raw, ':')
 	un, gn := raw, ""
 	if index != -1 {
@@ -293,7 +294,7 @@ func readUserGroup(o *fdOptions) (u int, g int, err error) {
 		gn = raw[index+1:]
 	}
 	if un != "" {
-		if !o.numguid {
+		if !o.Numguid {
 			user, err := osu.Lookup(un)
 			if err != nil {
 				return -1, -1, err
@@ -307,7 +308,7 @@ func readUserGroup(o *fdOptions) (u int, g int, err error) {
 		u = int(i64)
 	}
 	if gn != "" {
-		if !o.numguid {
+		if !o.Numguid {
 			group, err := osu.LookupGroup(gn)
 			if err != nil {
 				return -1, -1, err
@@ -324,62 +325,20 @@ func readUserGroup(o *fdOptions) (u int, g int, err error) {
 }
 
 type fdOptions struct {
-	recursive bool
-	silent    bool
-	mode      string
-	numguid   bool
-	args      []string // use for keep remain argument for a individual copy pass to executed function handler
-	*options           // when return a copy to function handler, options is alway nil
+	Recursive bool   `flag:"recursive"`
+	Mode      string `flag:"mode,740"`
+	Numguid   bool   `flag:"guinum"`
+	Args      []string
 }
 
-func (o *fdOptions) reset() {
-	o.recursive = false
-	o.silent = false
-	o.mode = "0755" // default flag mode
-	o.numguid = false
-	o.options.args = nil
-}
-
-func (o *fdOptions) copy() interface{} {
-	return &fdOptions{
-		recursive: o.recursive,
-		silent:    o.silent,
-		mode:      o.mode,
-		numguid:   o.numguid,
-		args:      o.options.args,
-	}
-}
-
-func (o *fdOptions) flagRecursive(fs *flag.FlagSet, name string, desc string, alias ...string) *fdOptions {
-	fs.BoolVar(&o.recursive, name, false, desc)
-	for _, an := range alias {
-		fs.BoolVar(&o.recursive, an, false, desc)
-	}
-	return o
-}
-
-func (o *fdOptions) flagMode(fs *flag.FlagSet, name string, desc string) *fdOptions {
-	fs.StringVar(&o.mode, name, "0755", desc)
-	return o
-}
-
-func newFDOptions(fs *flag.FlagSet, includeSilent bool) *fdOptions {
-	opts := &fdOptions{options: &options{}}
-	opts.options.opts = opts
-	if includeSilent {
-		fs.BoolVar(&opts.silent, "s", false, "do not report error.")
-	}
-	return opts
-}
-
-func removeAll(folderOnly bool, gf *GeneralFunction, i interface{}) (interface{}, error) {
+func removeAll(folderOnly bool, f Function, i interface{}) (interface{}, error) {
 	opts := i.(*fdOptions)
-	paths, err := readPath(gf, opts, -1, 0)
+	paths, err := readPath(f, opts, -1, 0)
 	if err != nil {
 		return nil, err
 	}
 	for _, path := range paths {
-		if folderOnly || !opts.recursive {
+		if folderOnly || !opts.Recursive {
 			stat, err := os.Stat(path)
 			if err != nil {
 				return nil, err
@@ -392,7 +351,7 @@ func removeAll(folderOnly bool, gf *GeneralFunction, i interface{}) (interface{}
 				return nil, fmt.Errorf("%s is a directory use rmdir or add flag -r", path)
 			}
 		}
-		if opts.recursive {
+		if opts.Recursive {
 			if folderOnly {
 				if filepath.IsAbs(path) {
 					return nil, fmt.Errorf("%s is an aboslute path, only relative path is allowed when -p flag is given", path)
@@ -446,8 +405,8 @@ func moveOrCopyGlob(sources []string, dir string, action func(a, b string) error
 	return nil
 }
 
-func moveOrCopy(gf *GeneralFunction, i interface{}, action func(a, b string) error) (interface{}, error) {
-	paths, err := readPath(gf, i.(*fdOptions), -1, 0)
+func moveOrCopy(f Function, i interface{}, action func(a, b string) error) (interface{}, error) {
+	paths, err := readPath(f, i.(*fdOptions), -1, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -495,224 +454,273 @@ func moveOrCopy(gf *GeneralFunction, i interface{}, action func(a, b string) err
 	}
 }
 
+const (
+	pathDesc           = `It fine to use linux file path syntax on any platform.`
+	permissoinDesc     = `The function utilize linux permission mode syntax to set permission.`
+	permissionFlagDesc = `The linux permission syntax is required in order provide the permission other than default permission 740.`
+)
+
+const (
+	mkdirRecurDesc = `Create directories recursively if any directory in the given path is not exist.
+					  By default, if permission mode is not given then a permission 740 is used.`
+	mkdirMode = `Set directory permission. ` + permissionFlagDesc
+	mkdirDesc = `Create one or multiple directories. ` + permissoinDesc + ` ` + pathDesc
+)
+
+var fdOptionsType = reflect.TypeOf((*fdOptions)(nil)).Elem()
+
+var mkdirFlags = &args.Flags{
+	Flags: []*args.Flag{
+		{Short: "p", Long: "recursive", Description: mkdirRecurDesc},
+		{Short: "-m", Long: "mode", Description: mkdirMode},
+	},
+	Result:      fdOptionsType,
+	FuncName:    "mkdir",
+	ShortDesc:   "create directories",
+	Usage:       "@mkdir [-p] [-m permission] PATH",
+	Example:     "@mkdir -p -m 755 dir1/dir2/dir3",
+	Description: mkdirDesc,
+}
+
+var rmdirFlags = &args.Flags{
+	Flags: []*args.Flag{
+		{Short: "p", Long: "recursive", Description: "Remove all empty child directories include current directory as well."},
+	},
+	Result:      fdOptionsType,
+	FuncName:    "rmdir",
+	ShortDesc:   "remove directories",
+	Usage:       "@rmdir [-p] PATH",
+	Example:     "@rmdir -p dir1/dir2/dir3",
+	Description: `Remove one or multiply empty directory in the hierarchy. ` + pathDesc,
+}
+
+var rmFlags = &args.Flags{
+	Flags: []*args.Flag{
+		{Short: "r", Long: "recursive", Description: "Remove all file or directory in hierarchy of the given directory."},
+	},
+	Result:    fdOptionsType,
+	FuncName:  "rm",
+	ShortDesc: "remove files or directories",
+	Usage:     "@rm [-p] PATH",
+	Example:   "@rm -p dir1/dir2/dir3",
+	Description: `Remove one or more files and directory in the hierarchy. If the given path is a file then only that that is remove
+				  however it was a directory then it content including the directory itself will be remove.` + pathDesc,
+}
+
+var chdirFlags = &args.Flags{
+	Result:      fdOptionsType,
+	FuncName:    "workin",
+	ShortDesc:   "change working directory",
+	Usage:       "@workin PATH",
+	Example:     "@workin dir1/dir2/dir3",
+	Description: `Change current working directory to the given directory.` + pathDesc,
+}
+
+var chownFlags = &args.Flags{
+	Flags: []*args.Flag{
+		{Short: "n", Long: "guinum", Description: `Tell @chown that the given user and/or group id is a numeric id. 
+												   By default, @chown treat the given user or group as a username or group name
+												   which required lookup to find a numeric representation of user or group id.`},
+		{Short: "r", Long: "recursive", Description: `Tell @chown to change owner of all file or directory in the hierarchy.`},
+	},
+	Result:      fdOptionsType,
+	FuncName:    "chown",
+	ShortDesc:   "Change owner and/or group of file or directory",
+	Usage:       "@chown [-rn] [user][:group] PATH",
+	Example:     "@chown -r user1:group1 dir1/dir2/dir3",
+	Description: `Change owner and/or group of file or directory.` + pathDesc,
+}
+
+var chmodFlags = &args.Flags{
+	Flags: []*args.Flag{
+		{Short: "r", Long: "recursive", Description: `Tell @chmode to change permission of all file or directory in the hierarchy.`},
+	},
+	Result:      fdOptionsType,
+	FuncName:    "chmod",
+	ShortDesc:   "Change permission of files or directories",
+	Usage:       "@chown [-r] mode PATH [PATH ...]",
+	Example:     "@chown -r u+x,g-w dir1 dir2/dir3",
+	Description: `Change permission mode of files or directories.` + pathDesc,
+}
+
+var mvFlags = &args.Flags{
+	Result:      fdOptionsType,
+	FuncName:    "mv",
+	ShortDesc:   "Move a file or directorie",
+	Usage:       "@mv TARGET_PATH DESTRINATION_PATH",
+	Example:     "@mv dir1 dir2/dir3",
+	Description: `Move a target file or directory to the destination path which must be an existed directory.` + pathDesc,
+}
+
+var cpFlags = &args.Flags{
+	Flags: []*args.Flag{
+		{Short: "r", Long: "recursive", Description: `Copies the directory and the entire sub-tree to the target. To copy the content only add trailing /.`},
+	},
+	Result:      fdOptionsType,
+	FuncName:    "cp",
+	ShortDesc:   "Copy files or directories",
+	Usage:       "@cp [-r] mode PATH [PATH ...] NEW_PATH",
+	Example:     "@cp dir1 file.txt dir2/dir3",
+	Description: `Copy one or more of files or directories. If the target is not exist the @cp will create like call @mkdir -p. ` + pathDesc,
+}
+
 func init() {
-	registerFunction(&GeneralFunction{
-		name: "mkdir",
-		flagInit: func(fs *flag.FlagSet) Option {
-			opts := newFDOptions(fs, true)
-			opts.flagRecursive(fs, "p", "create directory recursively if not existed.")
-			opts.flagMode(fs, "m", "created directory permission.")
-			return opts
-		},
-		handler: func(gf *GeneralFunction, i interface{}) (interface{}, error) {
-			opts := i.(*fdOptions)
-			paths, err := readPath(gf, opts, -1, 0)
+	registerFunction(NewBaseFunction(mkdirFlags, func(f Function, i interface{}) (interface{}, error) {
+		opts := i.(*fdOptions)
+		paths, err := readPath(f, opts, -1, 0)
+		if err != nil {
+			return nil, err
+		}
+		for _, path := range paths {
+			m, err := readMode(path, opts.Mode)
 			if err != nil {
 				return nil, err
 			}
+			if opts.Recursive {
+				if err = os.MkdirAll(path, os.FileMode(m)); err != nil {
+					return nil, err
+				}
+			} else if err = os.Mkdir(path, os.FileMode(m)); err != nil {
+				return nil, err
+			}
+		}
+		return nil, nil
+	}))
+
+	registerFunction(NewBaseFunction(rmdirFlags, func(f Function, i interface{}) (interface{}, error) {
+		return removeAll(true, f, i)
+	}))
+
+	registerFunction(NewBaseFunction(rmFlags, func(f Function, i interface{}) (interface{}, error) {
+		return removeAll(false, f, i)
+	}))
+
+	registerFunction(NewBaseFunction(chdirFlags, func(f Function, i interface{}) (interface{}, error) {
+		paths, err := readPath(f, i.(*fdOptions), 1, 0)
+		if err != nil {
+			return nil, err
+		}
+		return nil, os.Chdir(paths[0])
+	}, "chdir"))
+
+	registerFunction(NewBaseFunction(chownFlags, func(f Function, i interface{}) (interface{}, error) {
+		opts := i.(*fdOptions)
+		// must call ownergroup before path
+		u, g, err := readUserGroup(opts)
+		if err != nil {
+			return nil, err
+		}
+		paths, err := readPath(f, opts, -1, 1)
+		if err != nil {
+			return nil, err
+		}
+		if opts.Recursive {
 			for _, path := range paths {
-				m, err := readMode(path, opts.mode)
+				err = filepath.WalkDir(path, func(path string, d fs.DirEntry, err error) error {
+					return os.Chown(path, u, g)
+				})
 				if err != nil {
 					return nil, err
 				}
-				if opts.recursive {
-					if err = os.MkdirAll(path, os.FileMode(m)); err != nil {
-						return nil, err
-					}
-				} else if err = os.Mkdir(path, os.FileMode(m)); err != nil {
+			}
+		} else {
+			for _, path := range paths {
+				if err = os.Chown(path, u, g); err != nil {
 					return nil, err
 				}
 			}
-			return nil, nil
-		},
-	})
+		}
+		return nil, nil
+	}))
 
-	registerFunction(&GeneralFunction{
-		name: "rmdir",
-		flagInit: func(fs *flag.FlagSet) Option {
-			opts := newFDOptions(fs, true)
-			opts.flagRecursive(fs, "p", "remove directory hierarchy recursively.")
-			return opts
-		},
-		handler: func(gf *GeneralFunction, i interface{}) (interface{}, error) {
-			return removeAll(true, gf, i)
-		},
-	})
-
-	registerFunction(&GeneralFunction{
-		name: "rm",
-		flagInit: func(fs *flag.FlagSet) Option {
-			opts := newFDOptions(fs, true)
-			opts.flagRecursive(fs, "R", "remove hierarchy recursively, it include directory as well.", "r")
-			return opts
-		},
-		handler: func(gf *GeneralFunction, i interface{}) (interface{}, error) {
-			return removeAll(false, gf, i)
-		},
-	})
-
-	registerFunction(&GeneralFunction{
-		name:     "workin",
-		alias:    []string{"chdir"},
-		flagInit: func(fs *flag.FlagSet) Option { return newFDOptions(fs, false) },
-		handler: func(gf *GeneralFunction, i interface{}) (interface{}, error) {
-			paths, err := readPath(gf, i.(*fdOptions), 1, 0)
+	registerFunction(NewBaseFunction(chmodFlags, func(f Function, i interface{}) (interface{}, error) {
+		opts := i.(*fdOptions)
+		paths, err := readPath(f, opts, -1, 1)
+		if err != nil {
+			return nil, err
+		}
+		chmod := func(path string) error {
+			m, err := readMode(path, opts.Args[0])
 			if err != nil {
-				return nil, err
+				return err
+			} else if err = os.Chmod(path, m); err != nil {
+				return err
 			}
-			return nil, os.Chdir(paths[0])
-		},
-	})
-
-	registerFunction(&GeneralFunction{
-		name: "chown",
-		flagInit: func(fs *flag.FlagSet) Option {
-			opts := newFDOptions(fs, true)
-			opts.flagRecursive(fs, "R", "change owner or group of directory or file recursively.")
-			fs.BoolVar(&opts.numguid, "n", false, "indicate that the given owner or group id is a numeric.")
-			return opts
-		},
-		handler: func(gf *GeneralFunction, i interface{}) (interface{}, error) {
-			opts := i.(*fdOptions)
-			// must call ownergroup before path
-			u, g, err := readUserGroup(opts)
-			if err != nil {
-				return nil, err
-			}
-			paths, err := readPath(gf, opts, -1, 1)
-			if err != nil {
-				return nil, err
-			}
-			if opts.recursive {
-				for _, path := range paths {
-					err = filepath.WalkDir(path, func(path string, d fs.DirEntry, err error) error {
-						return os.Chown(path, u, g)
-					})
-					if err != nil {
-						return nil, err
-					}
-				}
-			} else {
-				for _, path := range paths {
-					if err = os.Chown(path, u, g); err != nil {
-						return nil, err
-					}
-				}
-			}
-			return nil, nil
-		},
-	})
-
-	registerFunction(&GeneralFunction{
-		name: "chmod",
-		flagInit: func(fs *flag.FlagSet) Option {
-			opts := newFDOptions(fs, true)
-			opts.flagRecursive(fs, "R", "change directory or file ownership in hierarchies recursively.", "r")
-			return opts
-		},
-		handler: func(gf *GeneralFunction, i interface{}) (interface{}, error) {
-			opts := i.(*fdOptions)
-			paths, err := readPath(gf, opts, -1, 1)
-			if err != nil {
-				return nil, err
-			}
-			chmod := func(path string) error {
-				m, err := readMode(path, opts.args[0])
+			return nil
+		}
+		if opts.Recursive {
+			for _, path := range paths {
+				err = filepath.WalkDir(path, func(path string, d fs.DirEntry, err error) error {
+					return chmod(path)
+				})
 				if err != nil {
-					return err
-				} else if err = os.Chmod(path, m); err != nil {
-					return err
-				}
-				return nil
-			}
-			if opts.recursive {
-				for _, path := range paths {
-					err = filepath.WalkDir(path, func(path string, d fs.DirEntry, err error) error {
-						return chmod(path)
-					})
-					if err != nil {
-						return nil, err
-					}
-				}
-			} else {
-				for _, path := range paths {
-					if err = chmod(path); err != nil {
-						return nil, err
-					}
+					return nil, err
 				}
 			}
-			return nil, nil
-		},
-	})
+		} else {
+			for _, path := range paths {
+				if err = chmod(path); err != nil {
+					return nil, err
+				}
+			}
+		}
+		return nil, nil
+	}))
 
-	registerFunction(&GeneralFunction{
-		name:     "mv",
-		alias:    []string{"move"},
-		flagInit: func(fs *flag.FlagSet) Option { return newFDOptions(fs, true) },
-		handler: func(gf *GeneralFunction, i interface{}) (interface{}, error) {
-			return moveOrCopy(gf, i, func(a, b string) error { return os.Rename(a, b) })
-		},
-	})
+	registerFunction(NewBaseFunction(mvFlags, func(f Function, i interface{}) (interface{}, error) {
+		return moveOrCopy(f, i, func(a, b string) error { return os.Rename(a, b) })
+	}, "move"))
 
-	registerFunction(&GeneralFunction{
-		name:  "cp",
-		alias: []string{"copy"},
-		flagInit: func(fs *flag.FlagSet) Option {
-			opts := newFDOptions(fs, true)
-			opts.flagRecursive(fs, "R", "copies the directory and the entire sub-tree to target. To copy the content only add trailing /.")
-			return opts
-		},
-		handler: func(gf *GeneralFunction, i interface{}) (interface{}, error) {
-			opts := i.(*fdOptions)
-			return moveOrCopy(gf, i, func(a, b string) error {
-				if opts.recursive {
-					stata, err := os.Stat(a)
-					if os.IsNotExist(err) || err != nil {
-						return err
+	registerFunction(NewBaseFunction(cpFlags, func(f Function, i interface{}) (interface{}, error) {
+		opts := i.(*fdOptions)
+		return moveOrCopy(f, i, func(a, b string) error {
+			if opts.Recursive {
+				stata, err := os.Stat(a)
+				if os.IsNotExist(err) || err != nil {
+					return err
+				}
+				if stata.IsDir() {
+					// copy recursive include directory as well
+					if a[len(a)-1] != os.PathSeparator {
+						b = filepath.Join(b, filepath.Base(a))
 					}
-					if stata.IsDir() {
-						// copy recursive include directory as well
-						if a[len(a)-1] != os.PathSeparator {
-							b = filepath.Join(b, filepath.Base(a))
+					statb, err := os.Stat(b)
+					if os.IsNotExist(err) {
+						if err = os.MkdirAll(b, stata.Mode()); err != nil {
+							return err
 						}
-						statb, err := os.Stat(b)
-						if os.IsNotExist(err) {
-							if err = os.MkdirAll(b, stata.Mode()); err != nil {
+					} else if !statb.IsDir() {
+						return fmt.Errorf("target %s is not a directory", b)
+					}
+					return filepath.WalkDir(a, func(path string, d fs.DirEntry, err error) error {
+						var rel string
+						if err == nil {
+							rel, err = filepath.Rel(a, path)
+							if err != nil {
 								return err
 							}
-						} else if !statb.IsDir() {
-							return fmt.Errorf("target %s is not a directory", b)
-						}
-						return filepath.WalkDir(a, func(path string, d fs.DirEntry, err error) error {
-							var rel string
-							if err == nil {
-								rel, err = filepath.Rel(a, path)
+							if d.IsDir() {
+								var di os.FileInfo
+								di, err = d.Info()
 								if err != nil {
 									return err
 								}
-								if d.IsDir() {
-									var di os.FileInfo
-									di, err = d.Info()
-									if err != nil {
-										return err
-									}
-									err = os.MkdirAll(filepath.Join(b, rel), di.Mode())
-								} else {
-									err = copyFile(path, filepath.Join(b, rel))
-								}
+								err = os.MkdirAll(filepath.Join(b, rel), di.Mode())
+							} else {
+								err = copyFile(path, filepath.Join(b, rel))
 							}
-							return err
-						})
-					}
+						}
+						return err
+					})
 				}
+			}
 
-				statb, err := os.Stat(b)
-				// check if b is directory the copy in form b/base(a)
-				if (err == nil || os.IsExist(err)) && statb.IsDir() {
-					b = filepath.Join(b, filepath.Base(a))
-				}
-				return copyFile(a, b)
-			})
-		},
-	})
+			statb, err := os.Stat(b)
+			// check if b is directory the copy in form b/base(a)
+			if (err == nil || os.IsExist(err)) && statb.IsDir() {
+				b = filepath.Join(b, filepath.Base(a))
+			}
+			return copyFile(a, b)
+		})
+	}, "copy"))
 }

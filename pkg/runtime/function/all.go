@@ -1,60 +1,18 @@
 package function
 
 import (
-	"bytes"
-	"flag"
 	"fmt"
-	"sync"
+	"strconv"
+
+	"github.com/cozees/cook/pkg/runtime/args"
 )
 
-type Option interface {
-	Parse(fs *flag.FlagSet, args []string) (interface{}, error)
-	reset()
-	copy() interface{}
-}
-
-type options struct {
-	opts      Option
-	args      []string
-	argNeeded int
-	lock      sync.RWMutex
-}
-
-func (o *options) Parse(fs *flag.FlagSet, args []string) (i interface{}, err error) {
-	o.lock.Lock()
-	defer func() {
-		o.opts.reset()
-		o.lock.Unlock()
-	}()
-	if err = fs.Parse(args); err != nil {
-		return
-	}
-	o.args = fs.Args()
-	return o.opts.copy(), nil
-}
-
-func flagBool(fs *flag.FlagSet, v *bool, name string, def bool, desc string, alias ...string) {
-	fs.BoolVar(v, name, def, desc)
-	for _, a := range alias {
-		fs.BoolVar(v, a, def, desc)
-	}
-}
-
-func flagString(fs *flag.FlagSet, v *string, name, def, desc string, alias ...string) {
-	fs.StringVar(v, name, def, desc)
-	for _, a := range alias {
-		fs.StringVar(v, a, def, desc)
-	}
-}
-
-type FuncHandler func(*GeneralFunction, interface{}) (interface{}, error)
-type FlagInitHandler func(*flag.FlagSet) Option
+type FuncHandler func(f Function, i interface{}) (interface{}, error)
 
 type Function interface {
-	Apply([]string) (interface{}, error)
+	Apply([]*args.FunctionArg) (interface{}, error)
 	Name() string
 	Alias() []string
-	Help(name string) string
 }
 
 // store function reference by name
@@ -72,40 +30,42 @@ func registerFunction(f Function) {
 	}
 }
 
-type GeneralFunction struct {
-	name    string
-	alias   []string
-	handler FuncHandler
-
-	flagSet  *flag.FlagSet
-	flagInit FlagInitHandler
-	option   Option
-	flagOnce sync.Once
+type BaseFunction struct {
+	fnFlags   *args.Flags
+	nameAlias []string
+	handler   FuncHandler
 }
 
-func (gf *GeneralFunction) Name() string    { return gf.name }
-func (gf *GeneralFunction) Alias() []string { return gf.alias }
-
-func (gf *GeneralFunction) ensureFlag() {
-	gf.flagOnce.Do(func() {
-		gf.flagSet = flag.NewFlagSet(gf.name, flag.ExitOnError)
-		gf.option = gf.flagInit(gf.flagSet)
-	})
-}
-
-func (gf *GeneralFunction) Help(name string) string {
-	gf.ensureFlag()
-	buffer := bytes.NewBufferString(fmt.Sprintf("Usage of %s:\n", name))
-	gf.flagSet.SetOutput(buffer)
-	gf.flagSet.PrintDefaults()
-	return buffer.String()
-}
-
-func (gf *GeneralFunction) Apply(args []string) (interface{}, error) {
-	gf.ensureFlag()
-	i, err := gf.option.Parse(gf.flagSet, args)
-	if err != nil {
-		return nil, err
+func NewBaseFunction(flags *args.Flags, fh FuncHandler, alias ...string) *BaseFunction {
+	return &BaseFunction{
+		fnFlags:   flags,
+		nameAlias: alias,
+		handler:   fh,
 	}
-	return gf.handler(gf, i)
+}
+
+func (bf *BaseFunction) Name() string    { return bf.fnFlags.FuncName }
+func (bf *BaseFunction) Alias() []string { return bf.nameAlias }
+
+func (bf *BaseFunction) Apply(args []*args.FunctionArg) (interface{}, error) {
+	i, err := bf.fnFlags.ParseFunctionArgs(args)
+	if bf.handler != nil && i != nil {
+		i, err = bf.handler(bf, i)
+	}
+	return i, err
+}
+
+func toString(i interface{}) (string, error) {
+	switch v := i.(type) {
+	case string:
+		return v, nil
+	case int64:
+		return strconv.FormatInt(v, 10), nil
+	case float64:
+		return strconv.FormatFloat(v, 'g', -1, 64), nil
+	case bool:
+		return strconv.FormatBool(v), nil
+	default:
+		return "", fmt.Errorf("value %v cannot convert to string", i)
+	}
 }
