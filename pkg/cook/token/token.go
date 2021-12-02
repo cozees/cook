@@ -139,6 +139,7 @@ var tokens = [...]string{
 	LSS:       "<",
 	GTR:       ">",
 	ASSIGN:    "=",
+	READ_FROM: "<",
 	ASSIGN_TO: ">",
 	APPEND_TO: ">>",
 	NOT:       "!",

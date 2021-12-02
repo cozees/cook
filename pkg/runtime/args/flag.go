@@ -3,6 +3,7 @@ package args
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"reflect"
 	"strconv"
 	"strings"
@@ -18,14 +19,66 @@ const (
 	defaultCookfile = "Cookfile"
 )
 
+type Redirect uint8
+
+type FunctionMeta struct {
+	Name     string
+	Redirect string
+	FileFlag int
+	Files    []string
+	Args     []*FunctionArg
+}
+
 type MainOptions struct {
 	Cookfile string
 	Targets  []string
 	Args     map[string]interface{}
+	FuncMeta *FunctionMeta
 }
 
 func ParseMainArgument(args []string) (*MainOptions, error) {
 	mo := &MainOptions{Cookfile: defaultCookfile}
+	// check if first argument start with @ which is refer to a function name.
+	// cook will execute the function directly. The second argument onward will be
+	// use as function argument
+	if len(args) >= 1 && strings.HasPrefix(args[0], "@") {
+		mo.FuncMeta = &FunctionMeta{Name: args[0][1:]}
+		readFrom := ""
+		for _, arg := range args[1:] {
+			if readFrom != "" {
+				b, err := ioutil.ReadFile(arg)
+				if err != nil {
+					return nil, err
+				}
+				mo.FuncMeta.Args = append(mo.FuncMeta.Args, &FunctionArg{
+					Val:  string(b),
+					Kind: reflect.String,
+				})
+				readFrom = ""
+				continue
+			}
+			if mo.FuncMeta.Redirect != "" {
+				mo.FuncMeta.Files = append(mo.FuncMeta.Files, arg)
+				continue
+			}
+			// on unix platform or any platform that support redirect syntax
+			// the os or shell program that execute Cook will consume direct path
+			// and leave no redirect info here
+			switch arg {
+			case "<":
+				readFrom = arg
+			case ">", ">>":
+				mo.FuncMeta.Redirect = arg
+			default:
+				mo.FuncMeta.Args = append(mo.FuncMeta.Args, &FunctionArg{
+					Val:  arg,
+					Kind: reflect.String,
+				})
+			}
+		}
+		return mo, nil
+	}
+	// parse normal argument
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch {
