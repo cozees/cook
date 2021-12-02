@@ -24,7 +24,6 @@ type Redirect uint8
 type FunctionMeta struct {
 	Name     string
 	Redirect string
-	FileFlag int
 	Files    []string
 	Args     []*FunctionArg
 }
@@ -34,6 +33,7 @@ type MainOptions struct {
 	Targets  []string
 	Args     map[string]interface{}
 	FuncMeta *FunctionMeta
+	IsHelp   bool
 }
 
 func ParseMainArgument(args []string) (*MainOptions, error) {
@@ -78,6 +78,16 @@ func ParseMainArgument(args []string) (*MainOptions, error) {
 		}
 		return mo, nil
 	}
+
+	// handle help
+	if len(args) >= 1 && args[0] == "help" {
+		mo.IsHelp = true
+		if len(args) == 2 {
+			mo.FuncMeta = &FunctionMeta{Name: args[1]}
+		}
+		return mo, nil
+	}
+
 	// parse normal argument
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -301,10 +311,14 @@ type Flags struct {
 	Description string
 }
 
-func (flags *Flags) Help(md bool) string            { return flags.generateUsage(md).String() }
-func (flags *Flags) HelpAsReader(md bool) io.Reader { return flags.generateUsage(md) }
+func (flags *Flags) Help(md bool) string            { return flags.generateUsage(md, nil).String() }
+func (flags *Flags) HelpAsReader(md bool) io.Reader { return flags.generateUsage(md, nil) }
 
-func (flags *Flags) generateUsage(md bool) Builder {
+func (Flags *Flags) HelpFlagVisitor(md bool, fn func(fw FlagWriter)) io.Reader {
+	return Flags.generateUsage(md, fn)
+}
+
+func (flags *Flags) generateUsage(md bool, fn func(fw FlagWriter)) Builder {
 	var builder Builder
 	if md {
 		builder = NewMarkdownBuilder()
@@ -314,7 +328,11 @@ func (flags *Flags) generateUsage(md bool) Builder {
 	builder.Name(flags.FuncName, flags.ShortDesc)
 	builder.Usage(flags.Usage)
 	builder.Description(flags.Description)
-	builder.Flag(flags.Flags, flags.Result)
+	if fn != nil {
+		builder.FlagVisitor(fn)
+	} else {
+		builder.Flag(flags.Flags, flags.Result)
+	}
 	builder.Example(flags.Example)
 	return builder
 }

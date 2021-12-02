@@ -30,12 +30,15 @@ var stageName = [...]string{
 
 func (s stage) String() string { return stageName[s] }
 
+type FlagWriter func(maxFlagSize int, short, long, defaultVal, description string)
+
 type Builder interface {
 	io.Reader
 	Name(n, shortDesc string)
 	Usage(s string)
 	Description(s string)
 	Flag(flag []*Flag, t reflect.Type)
+	FlagVisitor(fn func(fw FlagWriter))
 	Example(s string)
 	String() string
 }
@@ -81,57 +84,67 @@ func (b *mdb) Description(s string) {
 }
 
 func (b *mdb) Flag(flags []*Flag, t reflect.Type) {
+	b.FlagVisitor(func(fw FlagWriter) {
+		for _, fl := range flags {
+			def := ""
+			if t.Kind() == reflect.Ptr {
+				t = t.Elem()
+			}
+		fieldLookup:
+			for i := 0; i < t.NumField(); i++ {
+				field := t.Field(i)
+				if dflag, ok := field.Tag.Lookup("flag"); ok && dflag == fl.Long {
+					def, ok = field.Tag.Lookup("default")
+					if kind := field.Type.Kind(); kind == reflect.Bool {
+						// boolean default value is always false
+						def = "false"
+						break fieldLookup
+					} else if !ok {
+						switch kind {
+						case reflect.Int64:
+							def = "0"
+						case reflect.Float64:
+							def = "0.0"
+						case reflect.String:
+							def = `""`
+						case reflect.Slice, reflect.Map:
+							def = "nil"
+						}
+					}
+					b.buf.WriteString(" value")
+					break
+				}
+			}
+			fw(0, fl.Short, fl.Long, def, fl.Description)
+		}
+	})
+}
+
+func (b *mdb) FlagVisitor(fn func(fw FlagWriter)) {
 	b.ensureStage(flag)
 	b.buf.WriteString("\n| Options/Flag | Default | Description |\n")
 	b.buf.WriteString("| --- | --- | --- |\n")
-	for _, fl := range flags {
-		b.buf.WriteString("| ")
-		if fl.Short != "" {
-			b.buf.WriteByte('-')
-			b.buf.WriteString(fl.Short)
-			b.buf.WriteString(", ")
-		}
-		b.buf.WriteString("--")
-		b.buf.WriteString(fl.Long)
-		// write default, require type from field defined in struct.
-		// a boolean does not required extra value
-		def := ""
-		if t.Kind() == reflect.Ptr {
-			t = t.Elem()
-		}
-	fieldLookup:
-		for i := 0; i < t.NumField(); i++ {
-			field := t.Field(i)
-			if dflag, ok := field.Tag.Lookup("flag"); ok && dflag == fl.Long {
-				def, ok = field.Tag.Lookup("default")
-				if kind := field.Type.Kind(); kind == reflect.Bool {
-					// boolean default value is always false
-					def = "false"
-					break fieldLookup
-				} else if !ok {
-					switch kind {
-					case reflect.Int64:
-						def = "0"
-					case reflect.Float64:
-						def = "0.0"
-					case reflect.String:
-						def = `""`
-					case reflect.Slice, reflect.Map:
-						def = "nil"
-					}
-				}
-				b.buf.WriteString(" value")
-				break
-			}
-		}
-		b.buf.WriteString(" | ")
-		b.buf.WriteString(def)
-		b.buf.WriteString(" | ")
-		// description last
-		b.buf.WriteString(spaceOnly.Replace(strings.TrimSpace(fl.Description)))
-		b.buf.WriteString(" |\n")
-	}
+	fn(b.visitFlags)
 	b.stage++
+}
+
+func (b *mdb) visitFlags(maxFlagSize int, short, long, defaultVal, description string) {
+	b.buf.WriteString("| ")
+	if short != "" {
+		b.buf.WriteByte('-')
+		b.buf.WriteString(short)
+		b.buf.WriteString(", ")
+	}
+	b.buf.WriteString("--")
+	b.buf.WriteString(long)
+	// write default, require type from field defined in struct.
+	// a boolean does not required extra value
+	b.buf.WriteString(" | ")
+	b.buf.WriteString(defaultVal)
+	b.buf.WriteString(" | ")
+	// description last
+	b.buf.WriteString(spaceOnly.Replace(strings.TrimSpace(description)))
+	b.buf.WriteString(" |\n")
 }
 
 func (b *mdb) Example(s string) {
@@ -198,34 +211,39 @@ func (b *console) Description(s string) {
 }
 
 func (b *console) Flag(flags []*Flag, t reflect.Type) {
+	mw := maxWidthFlag(flags)
+	b.FlagVisitor(func(fw FlagWriter) {
+		for _, fl := range flags {
+			fw(mw, fl.Short, fl.Long, "", fl.Description)
+		}
+	})
+}
+
+func (b *console) FlagVisitor(fn func(fw FlagWriter)) {
 	b.ensureStage(flag)
 	b.buf.WriteString("\nAvailable options or flag:\n\n")
-	mw := maxWidthFlag(flags)
-	for _, fl := range flags {
-		b.addIndent(1)
-		w := 0
-		if fl.Short != "" {
-			b.buf.WriteByte('-')
-			b.buf.WriteString(fl.Short)
-			b.buf.WriteString(", ")
-			w += 4
-		}
-		b.buf.WriteString("--")
-		b.buf.WriteString(fl.Long)
-		w += 2 + len(fl.Long)
-		if mw > w {
-			b.buf.WriteString(strings.Repeat(" ", mw-w))
-		}
-		// write default, require type from field defined in struct.
-		// a boolean does not required extra value
-		if t.Kind() == reflect.Ptr {
-			t = t.Elem()
-		}
-		// description last
-		b.buf.WriteString(wrapTextWith(6, 4+mw, b.width, fl.Description))
-		b.buf.WriteString("\n\n")
-	}
+	fn(b.visitFlags)
 	b.stage++
+}
+
+func (b *console) visitFlags(maxFlagSize int, short, long, defaultVal, description string) {
+	b.addIndent(1)
+	w := 0
+	if short != "" {
+		b.buf.WriteByte('-')
+		b.buf.WriteString(short)
+		b.buf.WriteString(", ")
+		w += 4
+	}
+	b.buf.WriteString("--")
+	b.buf.WriteString(long)
+	w += 2 + len(long)
+	if maxFlagSize > w {
+		b.buf.WriteString(strings.Repeat(" ", maxFlagSize-w))
+	}
+	// description last
+	b.buf.WriteString(wrapTextWith(6, 4+maxFlagSize, b.width, description))
+	b.buf.WriteString("\n\n")
 }
 
 func (b *console) Example(s string) {
