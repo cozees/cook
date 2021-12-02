@@ -290,8 +290,8 @@ func (flags *Flags) Validate() error {
 }
 
 func (flags *Flags) ensureStruct() error {
-	if flags.Result.Kind() != reflect.Struct {
-		return fmt.Errorf("option result must be a pointer or struct")
+	if kind := flags.Result.Kind(); kind != reflect.Struct {
+		return fmt.Errorf("option result must be a struct, giving %s", kind)
 	}
 	return nil
 }
@@ -342,6 +342,10 @@ func (flags *Flags) parseInternal(args []string, fnArgs []*FunctionArg) (v inter
 		nargk  reflect.Kind
 		field  reflect.Value
 	)
+	// set default value to each field if defined
+	if err = setDefaultFieldValue(flags.Result, val); err != nil {
+		return nil, err
+	}
 	// check Args arguments
 	argsField := val.FieldByName("Args")
 	if !argsField.CanSet() || argsField.Kind() != reflect.Slice {
@@ -447,8 +451,17 @@ func findField(t reflect.Type, v reflect.Value, name string) (rfield reflect.Val
 	mention, found := false, false
 	for i := 0; i < numField; i++ {
 		field := t.Field(i)
-		if !found && field.Tag.Get("flag") == name {
+		tag := field.Tag.Get("flag")
+		if !found && strings.HasPrefix(tag, name) {
+			var defaultVal interface{}
+			icomma := strings.IndexByte(tag, ',')
+			if (icomma != -1 && tag[:icomma] != name) || tag != name {
+				continue
+			}
 			rfield = v.Field(i)
+			if defaultVal != nil {
+				rfield.Set(reflect.ValueOf(defaultVal))
+			}
 			if mention {
 				break
 			}
@@ -466,4 +479,20 @@ func findField(t reflect.Type, v reflect.Value, name string) (rfield reflect.Val
 		}
 	}
 	return
+}
+
+func setDefaultFieldValue(t reflect.Type, v reflect.Value) error {
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		tag := field.Tag.Get("flag")
+		icomma := strings.IndexByte(tag, ',')
+		if icomma > 0 {
+			if defaultVal, err := parseFlagValue(field.Type.Kind(), tag[icomma+1:]); err != nil {
+				return fmt.Errorf("invalid default value %s : %w", tag[icomma+1:], err)
+			} else {
+				v.Field(i).Set(reflect.ValueOf(defaultVal))
+			}
+		}
+	}
+	return nil
 }
