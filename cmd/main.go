@@ -17,10 +17,14 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
+	} else if opts.IsHelp {
+		PrintHelp(opts.FuncMeta)
+		os.Exit(0)
 	} else if opts.FuncMeta != nil {
 		executeFunction(opts)
 		os.Exit(0)
 	}
+
 	p := parser.NewParser()
 	cook, err := p.Parse(opts.Cookfile)
 	if err != nil {

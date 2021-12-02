@@ -82,8 +82,8 @@ func ParseMainArgument(args []string) (*MainOptions, error) {
 	// handle help
 	if len(args) >= 1 && args[0] == "help" {
 		mo.IsHelp = true
-		if len(args) == 2 {
-			mo.FuncMeta = &FunctionMeta{Name: args[1]}
+		if len(args) == 2 && strings.HasPrefix(args[1], "@") {
+			mo.FuncMeta = &FunctionMeta{Name: args[1][1:]}
 		}
 		return mo, nil
 	}

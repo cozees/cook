@@ -78,7 +78,7 @@ func (b *mdb) Usage(s string) {
 func (b *mdb) Description(s string) {
 	b.ensureStage(description)
 	b.buf.WriteByte('\n')
-	b.buf.WriteString(spaceOnly.Replace(strings.TrimSpace(s)))
+	b.buf.WriteString(whitespace.Replace(strings.TrimSpace(s)))
 	b.buf.WriteByte('\n')
 	b.stage++
 }
@@ -143,7 +143,7 @@ func (b *mdb) visitFlags(maxFlagSize int, short, long, defaultVal, description s
 	b.buf.WriteString(defaultVal)
 	b.buf.WriteString(" | ")
 	// description last
-	b.buf.WriteString(spaceOnly.Replace(strings.TrimSpace(description)))
+	b.buf.WriteString(whitespace.Replace(strings.TrimSpace(description)))
 	b.buf.WriteString(" |\n")
 }
 
@@ -197,7 +197,7 @@ func (b *console) Usage(s string) {
 	b.ensureStage(usage)
 	b.buf.WriteString("USAGE\n")
 	b.addIndent(1)
-	b.buf.WriteString(s)
+	b.buf.WriteString(wrapTextByLine(4, s))
 	b.buf.WriteString("\n\n")
 	b.stage++
 }
@@ -250,7 +250,8 @@ func (b *console) Example(s string) {
 	b.ensureStage(example)
 	b.buf.WriteString("EXAMPLE\n")
 	b.addIndent(1)
-	b.buf.WriteString(s)
+	b.buf.WriteString(wrapTextByLine(4, s))
+	b.buf.WriteByte('\n')
 	b.buf.WriteByte('\n')
 	b.stage++
 }
@@ -274,7 +275,33 @@ func maxWidthFlag(flags []*Flag) int {
 	return w
 }
 
-var spaceOnly = strings.NewReplacer("\n", " ", "\t", " ")
+var whitespace = strings.NewReplacer("\n", " ", "\t", " ")
+
+func wrapTextByLine(space int, txt string) string {
+	buf := strings.Builder{}
+	indent := strings.Repeat(" ", space)
+	count, ln := 0, 0
+	for _, c := range txt {
+		switch c {
+		case ' ', '\t':
+			if count == 0 {
+				buf.WriteByte(' ')
+			}
+			count++
+		case '\n':
+			buf.WriteRune(c)
+			if ln == 0 {
+				buf.WriteString(indent)
+			}
+			ln++
+			count = 1
+		default:
+			count, ln = 0, 0
+			buf.WriteRune(c)
+		}
+	}
+	return buf.String()
+}
 
 func wrapTextWith(initSpace, space, w int, txt string) string {
 	buf := strings.Builder{}
@@ -282,6 +309,24 @@ func wrapTextWith(initSpace, space, w int, txt string) string {
 	buf.WriteString(strings.Repeat(" ", initSpace))
 	space += initSpace
 	w -= space
+	writer := func(s string) {
+		count := 0
+		for _, c := range s {
+			switch c {
+			case ' ', '\t', '\n':
+				if count == 0 {
+					buf.WriteRune(c)
+				}
+				count++
+			default:
+				count = 0
+				buf.WriteRune(c)
+			}
+		}
+	}
+	if w > len(txt) {
+		w = len(txt)
+	}
 	for {
 		if start != 0 {
 			buf.WriteString(strings.Repeat(" ", space))
@@ -289,17 +334,17 @@ func wrapTextWith(initSpace, space, w int, txt string) string {
 		i := strings.LastIndexAny(txt[:start+w], " \t\n")
 		if i == -1 {
 			next--
-			seg = spaceOnly.Replace(strings.TrimSpace(txt[start:next]))
+			seg = whitespace.Replace(strings.TrimSpace(txt[start:next]))
 			start, next = next, next+w
 		} else {
-			seg = spaceOnly.Replace(strings.TrimSpace(txt[start:i]))
+			seg = whitespace.Replace(strings.TrimSpace(txt[start:i]))
 			start, next = i, i+w
 		}
-		buf.WriteString(seg)
+		writer(seg)
 		buf.WriteByte('\n')
 		if next > len(txt) {
 			buf.WriteString(strings.Repeat(" ", space))
-			buf.WriteString(spaceOnly.Replace(strings.TrimSpace((txt[start:]))))
+			writer(whitespace.Replace(strings.TrimSpace((txt[start:]))))
 			break
 		}
 	}

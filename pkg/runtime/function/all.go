@@ -12,6 +12,7 @@ type FuncHandler func(f Function, i interface{}) (interface{}, error)
 type Function interface {
 	Apply([]*args.FunctionArg) (interface{}, error)
 	Name() string
+	Flags() *args.Flags
 	Alias() []string
 }
 
@@ -44,8 +45,9 @@ func NewBaseFunction(flags *args.Flags, fh FuncHandler, alias ...string) *BaseFu
 	}
 }
 
-func (bf *BaseFunction) Name() string    { return bf.fnFlags.FuncName }
-func (bf *BaseFunction) Alias() []string { return bf.nameAlias }
+func (bf *BaseFunction) Name() string       { return bf.fnFlags.FuncName }
+func (bf *BaseFunction) Alias() []string    { return bf.nameAlias }
+func (bf *BaseFunction) Flags() *args.Flags { return bf.fnFlags }
 
 func (bf *BaseFunction) Apply(args []*args.FunctionArg) (interface{}, error) {
 	i, err := bf.fnFlags.ParseFunctionArgs(args)

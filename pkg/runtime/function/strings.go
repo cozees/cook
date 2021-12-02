@@ -177,7 +177,7 @@ const (
 	spadRightDesc = `number of string to be pads right of a string. It is number of time a string given with flag
 					 --by to be repeated and concatenate to right.`
 	spadMaxDesc = `A total maximum number of character allowed. This number of unicode character is compare with the padding result.`
-	spadByDesc  = `The padding string`
+	spadByDesc  = `The string which use for padding, if it is empty or not given then the original argument is return instead.`
 	spadDesc    = `Pads the given string with another string given by "--by" flag until the resulting string is satisfied the
 				   given number to left and the right or it reach the maximum length. If number of total character exceeded the maximum
 				   given by --max flag then the result will be truncated.`
