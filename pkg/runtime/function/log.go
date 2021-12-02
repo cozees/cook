@@ -27,10 +27,10 @@ const (
 var printFlags = &args.Flags{
 	Flags: []*args.Flag{
 		{Short: "e", Long: "echo", Description: echoDesc},
-		{Short: "n", Long: "omitnl", Description: omitnlDesc},
+		{Short: "n", Long: "omitln", Description: omitnlDesc},
 		{Short: "s", Long: "strip", Description: stripDesc},
 	},
-	Result:      reflect.TypeOf((*printOption)(nil)),
+	Result:      reflect.TypeOf((*printOption)(nil)).Elem(),
 	FuncName:    "print",
 	Example:     "@print -e text",
 	ShortDesc:   "print arguments to the standard output or return them as a single string.",

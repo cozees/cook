@@ -20,18 +20,18 @@ FLAG = [
 initialize:
     for i, vs in VERSIONS {
         // split string into array by dot(.)
-        VERSION = @ssplit -by . $vs[1]
+        VERSION = @ssplit --by . $vs[1]
         M = VERSION[0]
         
         // append 1 character 0 to the left of string if string 
         // is less than maximum length 2
-        N = @spad -m 2 -l 1 -by 0 $VERSION[1]
-        P = @spad -m 2 -l 1 -by 0 $VERSION[2]
+        N = @spad -m 2 -l 1 --by 0 $VERSION[1]
+        P = @spad -m 2 -l 1 --by 0 $VERSION[2]
         B = "00"
         
         // if array is size more than 3
         if sizeof VERSION > 3 {
-            B = @spad -m 2 -l 1 -by 0 $VERSION[3]
+            B = @spad -m 2 -l 1 --by 0 $VERSION[3]
         }
 
         // append string url into array

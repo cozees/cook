@@ -358,10 +358,11 @@ func (flags *Flags) parseInternal(args []string, fnArgs []*FunctionArg) (v inter
 		length = len(fnArgs)
 	}
 	for i := 0; i < length; i++ {
+		flag = nil
 		if args != nil {
 			arg, sarg = args[i], args[i]
 		} else {
-			arg = fnArgs[i].Val
+			arg, sarg = fnArgs[i].Val, ""
 			if fnArgs[i].Kind == reflect.String {
 				sarg = arg.(string)
 			}
