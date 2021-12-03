@@ -34,7 +34,7 @@ type FlagWriter func(maxFlagSize int, short, long, defaultVal, description strin
 
 type Builder interface {
 	io.Reader
-	Name(n, shortDesc string)
+	Name(n, shortDesc string, aliases ...string)
 	Usage(s string)
 	Description(s string)
 	Flag(flag []*Flag, t reflect.Type)
@@ -58,10 +58,14 @@ func (b *mdb) ensureStage(s stage) {
 
 func (b *mdb) Read(p []byte) (n int, err error) { return b.buf.Read(p) }
 
-func (b *mdb) Name(n string, shortDesc string) {
+func (b *mdb) Name(n string, shortDesc string, aliases ...string) {
 	b.ensureStage(name)
 	b.buf.WriteString("## @")
 	b.buf.WriteString(n)
+	for _, alias := range aliases {
+		b.buf.WriteString(", @")
+		b.buf.WriteString(alias)
+	}
 	b.buf.WriteByte('\n')
 	b.stage++
 }
@@ -85,11 +89,11 @@ func (b *mdb) Description(s string) {
 
 func (b *mdb) Flag(flags []*Flag, t reflect.Type) {
 	b.FlagVisitor(func(fw FlagWriter) {
+		if t.Kind() == reflect.Ptr {
+			t = t.Elem()
+		}
 		for _, fl := range flags {
 			def := ""
-			if t.Kind() == reflect.Ptr {
-				t = t.Elem()
-			}
 		fieldLookup:
 			for i := 0; i < t.NumField(); i++ {
 				field := t.Field(i)
@@ -111,7 +115,6 @@ func (b *mdb) Flag(flags []*Flag, t reflect.Type) {
 							def = "nil"
 						}
 					}
-					b.buf.WriteString(" value")
 					break
 				}
 			}
@@ -182,11 +185,15 @@ func (b *console) addIndent(i int) { b.buf.WriteString(strings.Repeat(" ", i*4))
 
 func (b *console) Read(p []byte) (n int, err error) { return b.buf.Read(p) }
 
-func (b *console) Name(n, shortDesc string) {
+func (b *console) Name(n, shortDesc string, aliases ...string) {
 	b.ensureStage(name)
 	b.buf.WriteString("NAME\n")
 	b.addIndent(1)
 	b.buf.WriteString(n)
+	for _, alias := range aliases {
+		b.buf.WriteString(", ")
+		b.buf.WriteString(alias)
+	}
 	b.buf.WriteString(" -- ")
 	b.buf.WriteString(shortDesc)
 	b.buf.WriteString("\n\n")

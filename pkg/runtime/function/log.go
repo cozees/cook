@@ -9,6 +9,10 @@ import (
 	"github.com/cozees/cook/pkg/runtime/args"
 )
 
+func AllLogFlags() []*args.Flags {
+	return []*args.Flags{printFlags}
+}
+
 type printOption struct {
 	Strip  bool `flag:"strip"`  // strip whitespace before print for each argument
 	OmitNL bool `flag:"omitln"` // add newline, default yes

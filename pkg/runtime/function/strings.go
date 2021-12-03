@@ -18,6 +18,10 @@ import (
 	"github.com/cozees/cook/pkg/runtime/parser"
 )
 
+func AllStringFlags() []*args.Flags {
+	return []*args.Flags{sreplaceFlags, ssplitFlags, spadFlags}
+}
+
 type sSplitOption struct {
 	WS   bool   `flag:"ws"`
 	Line bool   `flag:"line"`

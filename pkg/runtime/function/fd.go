@@ -324,6 +324,10 @@ func readUserGroup(o *fdOptions) (u int, g int, err error) {
 	return
 }
 
+func AllFileDirectoryFlags() []*args.Flags {
+	return []*args.Flags{rmFlags, mkdirFlags, rmdirFlags, chmodFlags, chownFlags, cpFlags, mvFlags, chdirFlags}
+}
+
 type fdOptions struct {
 	Recursive bool   `flag:"recursive"`
 	Mode      string `flag:"mode,740"`

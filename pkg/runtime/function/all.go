@@ -38,6 +38,7 @@ type BaseFunction struct {
 }
 
 func NewBaseFunction(flags *args.Flags, fh FuncHandler, alias ...string) *BaseFunction {
+	flags.Aliases = alias
 	return &BaseFunction{
 		fnFlags:   flags,
 		nameAlias: alias,

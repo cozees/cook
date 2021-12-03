@@ -303,6 +303,7 @@ type FunctionArg struct {
 
 type Flags struct {
 	FuncName    string
+	Aliases     []string
 	Flags       []*Flag
 	Result      reflect.Type
 	Example     string
@@ -325,7 +326,7 @@ func (flags *Flags) generateUsage(md bool, fn func(fw FlagWriter)) Builder {
 	} else {
 		builder = NewConsoleBuilder()
 	}
-	builder.Name(flags.FuncName, flags.ShortDesc)
+	builder.Name(flags.FuncName, flags.ShortDesc, flags.Aliases...)
 	builder.Usage(flags.Usage)
 	builder.Description(flags.Description)
 	if fn != nil {

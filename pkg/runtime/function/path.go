@@ -10,6 +10,10 @@ import (
 	"github.com/cozees/cook/pkg/runtime/args"
 )
 
+func AllPathFlags() []*args.Flags {
+	return []*args.Flags{pbaseFlags, pabsFlags, pcleanFlags, pdirFlags, pextFlags, psplitFlags, prelFlags, pglobFlags}
+}
+
 type pathOptions struct {
 	Args []string
 }
