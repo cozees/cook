@@ -185,7 +185,7 @@ func (it *implForContext) shouldBreak(index int) bool {
 
 func (it *implForContext) breakWith(id string) error {
 	if id == "" {
-		it.breakIndex = len(it.loops)
+		it.breakIndex = len(it.loops) - 1
 	} else if i, err := it.isLoopExist(id); err != nil {
 		return err
 	} else {
@@ -196,7 +196,7 @@ func (it *implForContext) breakWith(id string) error {
 
 func (it *implForContext) continueWith(id string) error {
 	if id == "" {
-		it.continueIndex = len(it.loops)
+		it.continueIndex = len(it.loops) - 1
 	} else if i, err := it.isLoopExist(id); err != nil {
 		return err
 	} else {
