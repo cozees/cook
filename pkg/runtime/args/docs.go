@@ -39,7 +39,7 @@ type Builder interface {
 	Description(s string)
 	Flag(flag []*Flag, t reflect.Type)
 	FlagVisitor(fn func(fw FlagWriter))
-	Example(s string)
+	Example(s, topAnchor string)
 	String() string
 }
 
@@ -150,12 +150,15 @@ func (b *mdb) visitFlags(maxFlagSize int, short, long, defaultVal, description s
 	b.buf.WriteString(" |\n")
 }
 
-func (b *mdb) Example(s string) {
+func (b *mdb) Example(s, topAnchor string) {
 	b.ensureStage(example)
 	b.buf.WriteString("\nExample:\n")
 	b.buf.WriteString("\n```cook\n")
 	b.buf.WriteString(s)
 	b.buf.WriteString("\n```\n")
+	if topAnchor != "" {
+		b.buf.WriteString(fmt.Sprintf("[back top](#%s)\n", topAnchor))
+	}
 	b.stage++
 }
 
@@ -253,7 +256,7 @@ func (b *console) visitFlags(maxFlagSize int, short, long, defaultVal, descripti
 	b.buf.WriteString("\n\n")
 }
 
-func (b *console) Example(s string) {
+func (b *console) Example(s, _ string) {
 	b.ensureStage(example)
 	b.buf.WriteString("EXAMPLE\n")
 	b.addIndent(1)

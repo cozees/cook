@@ -312,14 +312,18 @@ type Flags struct {
 	Description string
 }
 
-func (flags *Flags) Help(md bool) string            { return flags.generateUsage(md, nil).String() }
-func (flags *Flags) HelpAsReader(md bool) io.Reader { return flags.generateUsage(md, nil) }
-
-func (Flags *Flags) HelpFlagVisitor(md bool, fn func(fw FlagWriter)) io.Reader {
-	return Flags.generateUsage(md, fn)
+func (flags *Flags) Help(md bool, topAnchor string) string {
+	return flags.generateUsage(md, topAnchor, nil).String()
+}
+func (flags *Flags) HelpAsReader(md bool, topAnchor string) io.Reader {
+	return flags.generateUsage(md, topAnchor, nil)
 }
 
-func (flags *Flags) generateUsage(md bool, fn func(fw FlagWriter)) Builder {
+func (Flags *Flags) HelpFlagVisitor(md bool, topAnchor string, fn func(fw FlagWriter)) io.Reader {
+	return Flags.generateUsage(md, topAnchor, fn)
+}
+
+func (flags *Flags) generateUsage(md bool, topAnchor string, fn func(fw FlagWriter)) Builder {
 	var builder Builder
 	if md {
 		builder = NewMarkdownBuilder()
@@ -334,7 +338,7 @@ func (flags *Flags) generateUsage(md bool, fn func(fw FlagWriter)) Builder {
 	} else {
 		builder.Flag(flags.Flags, flags.Result)
 	}
-	builder.Example(flags.Example)
+	builder.Example(flags.Example, topAnchor)
 	return builder
 }
 

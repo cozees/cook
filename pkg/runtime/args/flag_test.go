@@ -505,7 +505,7 @@ sample -e sample.json
 `
 
 func TestMarkdownDoc(t *testing.T) {
-	result := flags.Help(true)
+	result := flags.Help(true, "")
 	assert.Equal(t, flagMarkdown[1:], result)
 }
 
@@ -553,6 +553,6 @@ EXAMPLE
 `
 
 func TestConsoleDoc(t *testing.T) {
-	result := flags.Help(false)
+	result := flags.Help(false, "")
 	assert.Equal(t, flagsConsole[1:], result)
 }

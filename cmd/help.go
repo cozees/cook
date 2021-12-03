@@ -33,10 +33,10 @@ const (
 
 func PrintHelp(f *args.FunctionMeta) {
 	if f != nil {
-		rd := function.GetFunction(f.Name).Flags().HelpAsReader(false)
+		rd := function.GetFunction(f.Name).Flags().HelpAsReader(false, "")
 		io.Copy(os.Stdout, rd)
 	} else {
-		io.Copy(os.Stdout, mainFlags.HelpFlagVisitor(false, func(fw args.FlagWriter) {
+		io.Copy(os.Stdout, mainFlags.HelpFlagVisitor(false, "", func(fw args.FlagWriter) {
 			fw(12, "", "help", "", helpDesc)
 			fw(12, "", "[VARIABLE]", "", varDesc)
 		}))
