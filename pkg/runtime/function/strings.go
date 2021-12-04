@@ -461,25 +461,26 @@ func init() {
 				return sargs[2], nil
 			}
 		}
-		// a file input
-		if strings.HasPrefix(sargs[2], "@") {
-			var lines []int
-			if opts.Line != "" {
-				if strings.IndexByte(opts.Line, ',') != -1 {
-					for _, lstr := range strings.Split(opts.Line, ",") {
-						l, err := strconv.ParseInt(lstr, 10, 32)
-						if err != nil {
-							return nil, fmt.Errorf("invalid line format %s from %s: %w", lstr, opts.Line, err)
-						}
-						lines = append(lines, int(l))
+		// if line available
+		var lines []int
+		if opts.Line != "" {
+			if strings.IndexByte(opts.Line, ',') != -1 {
+				for _, lstr := range strings.Split(opts.Line, ",") {
+					l, err := strconv.ParseInt(lstr, 10, 32)
+					if err != nil {
+						return nil, fmt.Errorf("invalid line format %s from %s: %w", lstr, opts.Line, err)
 					}
-					sort.Ints(lines)
-				} else if l, err := strconv.ParseInt(opts.Line, 10, 32); err != nil {
-					return nil, fmt.Errorf("invalid line format %s: %w", opts.Line, err)
-				} else {
 					lines = append(lines, int(l))
 				}
+				sort.Ints(lines)
+			} else if l, err := strconv.ParseInt(opts.Line, 10, 32); err != nil {
+				return nil, fmt.Errorf("invalid line format %s: %w", opts.Line, err)
+			} else {
+				lines = append(lines, int(l))
 			}
+		}
+		// a file input
+		if strings.HasPrefix(sargs[2], "@") {
 			// result is alway written to a newfile
 			var file = sargs[2][1:]
 			var fileBC string
@@ -610,7 +611,45 @@ func init() {
 			}
 			return nil, err
 		}
-		if opts.Regx {
+		if len(lines) > 0 {
+			maxLine := strings.Count(sargs[2], "\n")
+			// check if total line is less than minimum search&replace line thus there is nothing to replace
+			if maxLine-1 < lines[0] {
+				return sargs[2], nil
+			}
+			var reg *regexp.Regexp
+			var err error
+			if opts.Regx {
+				reg, err = regexp.Compile(sargs[0])
+				if err != nil {
+					return nil, err
+				}
+			}
+			offs, index := 0, 0
+			buf := strings.Builder{}
+			for i := 0; i < maxLine; i++ {
+				// include newline too
+				index = offs + strings.IndexByte(sargs[2][offs:], '\n') + 1
+				if index == -1 {
+					index = len(sargs[2])
+				}
+				if i == lines[0] {
+					if opts.Regx {
+						buf.WriteString(reg.ReplaceAllString(sargs[2][offs:index], sargs[1]))
+					} else {
+						buf.WriteString(strings.ReplaceAll(sargs[2][offs:index], sargs[0], sargs[1]))
+					}
+					lines = lines[1:]
+				} else {
+					buf.WriteString(sargs[2][offs:index])
+				}
+				offs = index
+			}
+			if offs < len(sargs[2]) {
+				buf.WriteString(sargs[2][offs:])
+			}
+			return buf.String(), nil
+		} else if opts.Regx {
 			reg, err := regexp.Compile(sargs[0])
 			if err != nil {
 				return nil, err
