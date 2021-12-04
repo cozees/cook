@@ -385,7 +385,7 @@ func copyFile(a, b string) error {
 	if err != nil {
 		return err
 	} else if f1Stat.IsDir() {
-		return fmt.Errorf("%s is not a file, to copy directory use -R", a)
+		return fmt.Errorf("%s is not a file, to copy directory use -r", a)
 	}
 	f2, err := os.OpenFile(b, os.O_CREATE|os.O_WRONLY, f1Stat.Mode())
 	if err != nil {
@@ -400,16 +400,68 @@ func copyFile(a, b string) error {
 	return nil
 }
 
-func moveOrCopyGlob(sources []string, dir string, action func(a, b string) error) error {
+func copyOrMoveDir(move bool, a, b string) (bool, error) {
+	stata, err := os.Stat(a)
+	if os.IsNotExist(err) || err != nil {
+		return false, err
+	}
+	if stata.IsDir() {
+		// copy recursive include directory as well
+		if a[len(a)-1] != os.PathSeparator {
+			b = filepath.Join(b, filepath.Base(a))
+		}
+		statb, err := os.Stat(b)
+		if os.IsNotExist(err) {
+			if err = os.MkdirAll(b, stata.Mode()); err != nil {
+				return false, err
+			}
+		} else if !statb.IsDir() {
+			return false, fmt.Errorf("target %s is not a directory", b)
+		}
+		err = filepath.WalkDir(a, func(path string, d fs.DirEntry, err error) error {
+			var rel string
+			if err == nil {
+				rel, err = filepath.Rel(a, path)
+				if err != nil {
+					return err
+				}
+				if d.IsDir() {
+					var di os.FileInfo
+					di, err = d.Info()
+					if err != nil {
+						return err
+					}
+					err = os.MkdirAll(filepath.Join(b, rel), di.Mode())
+				} else {
+					err = copyFile(path, filepath.Join(b, rel))
+				}
+			}
+			return err
+		})
+		if err != nil {
+			return false, err
+		}
+		// delete root copy dir a
+		if move {
+			return false, os.RemoveAll(a)
+		} else {
+			return false, nil
+		}
+	} else {
+		return true, nil
+	}
+}
+
+func moveOrCopyGlob(sources []string, dir string, action func(moveTo bool, a, b string) error) error {
 	for _, path := range sources {
-		if err := action(path, filepath.Join(dir, filepath.Base(path))); err != nil {
+		if err := action(true, path, filepath.Join(dir, filepath.Base(path))); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func moveOrCopy(f Function, i interface{}, action func(a, b string) error) (interface{}, error) {
+func moveOrCopy(f Function, i interface{}, action func(moveTo bool, a, b string) error) (interface{}, error) {
 	paths, err := readPath(f, i.(*fdOptions), -1, 0)
 	if err != nil {
 		return nil, err
@@ -454,7 +506,7 @@ func moveOrCopy(f Function, i interface{}, action func(a, b string) error) (inte
 		return nil, moveOrCopyGlob(ls, paths[1], action)
 	} else {
 		// not glob pattern
-		return nil, action(paths[0], paths[1])
+		return nil, action(stat != nil && stat.IsDir(), paths[0], paths[1])
 	}
 }
 
@@ -672,53 +724,28 @@ func init() {
 	}))
 
 	registerFunction(NewBaseFunction(mvFlags, func(f Function, i interface{}) (interface{}, error) {
-		return moveOrCopy(f, i, func(a, b string) error { return os.Rename(a, b) })
+		return moveOrCopy(f, i, func(moveTo bool, a, b string) error {
+			if moveTo {
+				if isFile, err := copyOrMoveDir(true, a, b); err != nil {
+					return err
+				} else if !isFile {
+					return nil
+				}
+			}
+			return os.Rename(a, b)
+		})
 	}, "move"))
 
 	registerFunction(NewBaseFunction(cpFlags, func(f Function, i interface{}) (interface{}, error) {
 		opts := i.(*fdOptions)
-		return moveOrCopy(f, i, func(a, b string) error {
+		return moveOrCopy(f, i, func(_ bool, a, b string) error {
 			if opts.Recursive {
-				stata, err := os.Stat(a)
-				if os.IsNotExist(err) || err != nil {
+				if isFile, err := copyOrMoveDir(false, a, b); err != nil {
 					return err
-				}
-				if stata.IsDir() {
-					// copy recursive include directory as well
-					if a[len(a)-1] != os.PathSeparator {
-						b = filepath.Join(b, filepath.Base(a))
-					}
-					statb, err := os.Stat(b)
-					if os.IsNotExist(err) {
-						if err = os.MkdirAll(b, stata.Mode()); err != nil {
-							return err
-						}
-					} else if !statb.IsDir() {
-						return fmt.Errorf("target %s is not a directory", b)
-					}
-					return filepath.WalkDir(a, func(path string, d fs.DirEntry, err error) error {
-						var rel string
-						if err == nil {
-							rel, err = filepath.Rel(a, path)
-							if err != nil {
-								return err
-							}
-							if d.IsDir() {
-								var di os.FileInfo
-								di, err = d.Info()
-								if err != nil {
-									return err
-								}
-								err = os.MkdirAll(filepath.Join(b, rel), di.Mode())
-							} else {
-								err = copyFile(path, filepath.Join(b, rel))
-							}
-						}
-						return err
-					})
+				} else if !isFile {
+					return nil
 				}
 			}
-
 			statb, err := os.Stat(b)
 			// check if b is directory the copy in form b/base(a)
 			if (err == nil || os.IsExist(err)) && statb.IsDir() {
