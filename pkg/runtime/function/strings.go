@@ -32,7 +32,7 @@ type sSplitOption struct {
 }
 
 func (so *sSplitOption) rowColumn() (row, column int, err error) {
-	row, column = -1, -1
+	row, column = -2, -2
 	if so.RC == "" {
 		return
 	}
@@ -207,22 +207,32 @@ func pad(left, right, max int, by, arg string) string {
 		return arg
 	}
 	// reduce left and right paddingt o fit max length
+	cut := 0
 	if max > 0 {
 		a := false
-		for left*len(by)+right*len(by)+len(arg) > max {
-			if a {
+		cut = left*len(by) + right*len(by) + len(arg) - max
+		for cut >= len(by) {
+			if a && left > 0 {
 				left--
-			} else {
+			} else if right > 0 {
 				right--
 			}
 			a = !a
+			cut = left*len(by) + right*len(by) + len(arg) - max
 		}
 	}
 	if left > 0 {
 		arg = strings.Repeat(by, left) + arg
+		if cut > 0 {
+			arg = arg[cut:]
+			cut = 0
+		}
 	}
 	if right > 0 {
 		arg += strings.Repeat(by, right)
+		if cut > 0 {
+			arg = arg[:len(arg)-cut]
+		}
 	}
 	return arg
 }
@@ -278,28 +288,29 @@ func init() {
 			row, col, err := opts.rowColumn()
 			if err != nil {
 				return nil, err
-			} else if !opts.Line && (row != -1 || col != -1) {
+			} else if !opts.Line && (row != -2 || col != -2) {
 				return nil, fmt.Errorf("flag \"--line\" is required when specified flag \"--rc\"")
 			}
 			s := parser.NewSimpleScanner(false)
 			s.Init([]byte(sarg))
+			lastNLPos, lastLine := strings.LastIndexByte(sarg, '\n'), false
 			offs, cur, cr, cc := 0, 0, 0, 0
 			var result, array []interface{}
 			var seg string
-			isCell := row != -1 && col != -1
-			var asg func(ln bool, s string) bool
+			isCell := row != -2 && col != -2
+			var asg func(nl, last bool, s string) bool
 			if !isCell {
 				result = make([]interface{}, 0, len(sarg))
 				array = make([]interface{}, 0, 1)
-				asg = func(ln bool, s string) bool {
-					if row != -1 || col != -1 {
-						if row == cr || col == cc {
+				asg = func(nl, last bool, s string) bool {
+					if row != -2 || col != -2 {
+						if row == cr || (last && row == -1) || col == cc || (nl && col == -1) {
 							result = append(result, s)
-							return row == cr && ln
+							return row == cr && nl
 						}
 					} else if opts.Line {
 						array = append(array, s)
-						if ln {
+						if nl {
 							result = append(result, array)
 							array = make([]interface{}, 0, 1)
 						}
@@ -309,8 +320,12 @@ func init() {
 					return false
 				}
 			} else {
-				asg = func(ln bool, s string) bool { return row == cr && col == cc }
+				asg = func(nl, last bool, s string) bool {
+					return (row == cr || (last && row == -1)) && (col == cc || (nl && col == -1))
+				}
 			}
+
+			lno, bsno := 0, 0
 		innerLoop:
 			for ch, err := s.Next(); err == nil && ch != parser.RuneEOF; ch, err = s.Next() {
 			revisit:
@@ -324,32 +339,49 @@ func init() {
 					}
 					fallthrough
 				case ch == '\n':
+					currentlyLastLine := lastLine
+					lastLine = lastNLPos == cur
 					if opts.Line {
-						if seg = sarg[offs:cur]; asg(true, seg) {
-							goto conclude
+						if lno == 0 {
+							if seg = sarg[offs:cur]; asg(true, currentlyLastLine, seg) {
+								goto conclude
+							}
+							cr++
+							cc = 0
+							bsno = 0
 						}
 						offs = s.NextOffset()
-						cr++
-						cc = 0
+						lno++
 						continue innerLoop
 					}
 					fallthrough
 				case unicode.IsSpace(ch):
 					if opts.WS {
-						if seg = sarg[offs:cur]; asg(false, seg) {
-							goto conclude
+						if bsno == 0 {
+							if seg = sarg[offs:cur]; asg(false, lastLine, seg) {
+								goto conclude
+							}
+							cc++
 						}
-						cc++
 						offs = s.NextOffset()
+						bsno++
+						break
+					} else if strings.IndexRune(opts.By, ch) != 0 {
+						break
 					}
+					fallthrough
 				case strings.IndexRune(opts.By, ch) == 0:
 					// only if it start with ch
 					ni := utf8.RuneLen(ch)
 					if ni == len(opts.By) {
-						if seg = sarg[offs:cur]; asg(false, seg) {
-							goto conclude
+						if bsno == 0 {
+							if seg = sarg[offs:cur]; asg(false, lastLine, seg) {
+								goto conclude
+							}
+							cc++
 						}
 						offs = s.NextOffset()
+						bsno++
 						continue innerLoop
 					}
 					for {
@@ -358,23 +390,33 @@ func init() {
 						} else if ni < len(opts.By) && strings.IndexRune(opts.By[ni:], ch) == 0 {
 							ni += utf8.RuneLen(ch)
 							if ni == len(opts.By) { // match delimiter "by"
-								if seg = sarg[offs:cur]; asg(false, seg) {
-									goto conclude
+								if bsno == 0 {
+									if seg = sarg[offs:cur]; asg(false, lastLine, seg) {
+										goto conclude
+									}
+									cc++
 								}
 								offs = s.NextOffset()
+								bsno++
 								continue innerLoop
 							}
 							continue
 						}
 						break
 					}
+					lno = 0
+					bsno = 0
 					if opts.Line && (ch == '\r' || ch == '\n') {
 						goto revisit
 					}
+				default:
+					lno = 0
+					bsno = 0
 				}
 			}
 			if offs < len(sarg) {
-				if seg = sarg[offs:]; asg(false, seg) {
+				// last segment follow by EOF and no newline.
+				if seg = sarg[offs:]; asg(true, lastLine, seg) {
 					goto conclude
 				}
 			}

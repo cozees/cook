@@ -68,12 +68,35 @@ var splitCase = []*caseInOut{
 		args:   convertToFunctionArgs([]string{"--regx", "\\s", "A yo-yo is a toy consisting of\nan axle connected to two disks"}),
 		output: []string{"A", "yo-yo", "is", "a", "toy", "consisting", "of", "an", "axle", "connected", "to", "two", "disks"},
 	},
+	{
+		args:   convertToFunctionArgs([]string{"--ws", "-l", "--rc", "-1:1", "A yo-yo is a toy consisting of\nan axle connected to two disks"}),
+		output: "axle",
+	},
+	{
+		args:   convertToFunctionArgs([]string{"--ws", "-l", "--rc", "-1:-1", "A yo-yo is a toy consisting of\nan axle connected to two disks"}),
+		output: "disks",
+	},
+	{
+		args:   convertToFunctionArgs([]string{"--ws", "-l", "--rc", "0:-1", "A yo-yo is a toy consisting of\nan axle connected to two disks"}),
+		output: "of",
+	},
+	{
+		args:   convertToFunctionArgs([]string{"--ws", "-l", "--rc", ":-1", "A yo-yo is a toy consisting of\nan axle connected to two disks"}),
+		output: []interface{}{"of", "disks"},
+	},
+	{
+		args:   convertToFunctionArgs([]string{"--by", " ", "-l", "--rc", "-1", "abc 123\n822 974"}),
+		output: []interface{}{"822", "974"},
+	},
 }
 
 func TestSplit(t *testing.T) {
 	fn := GetFunction("ssplit")
 	for i, tc := range splitCase {
 		t.Logf("TestSplit case #%d", i+1)
+		if i == 13 {
+			print(123)
+		}
 		result, err := fn.Apply(tc.args)
 		if tc.output == nil {
 			assert.Error(t, err)
