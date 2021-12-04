@@ -514,7 +514,7 @@ func init() {
 				if err != nil {
 					return nil, err
 				}
-				line := 1
+				line := 0
 				for {
 					src, errRead := buf.ReadString('\n')
 					if src != "" {
@@ -543,7 +543,7 @@ func init() {
 				}
 			} else {
 				buf := [bufferSize]byte{}
-				prev, result, n, line := "", "", 0, 1
+				prev, result, n, line := "", "", 0, 0
 				ireader := bufio.NewReader(f)
 				var errRead error
 				for {

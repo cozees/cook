@@ -215,7 +215,7 @@ func replaceAllAt(src, search, replace, lines string) string {
 	} else {
 		repline := getlines(lines)
 		var result []byte
-		line := 1
+		line := 0
 		buf := bytes.NewBufferString(src)
 		for ls, err := buf.ReadString('\n'); true; ls, err = buf.ReadString('\n') {
 			if ls != "" {
@@ -242,7 +242,7 @@ func replaceRegExpAllAt(buf *bufio.Reader, search, replace, lines string) string
 	repline := getlines(lines)
 	reg := regexp.MustCompile(search)
 	result := ""
-	line := 1
+	line := 0
 	for {
 		bline, err := buf.ReadString('\n')
 		if bline != "" {
@@ -296,12 +296,13 @@ func TestReplace(t *testing.T) {
 	ofile := "result-" + f
 	testFileArgs := [][]*args.FunctionArg{
 		convertToFunctionArgs([]string{"accusamus", "aac", "@" + f}),
-		convertToFunctionArgs([]string{"-l", "12,35", "accusamus", "aac", "@" + f}),
+		convertToFunctionArgs([]string{"-l", "11,34", "accusamus", "aac", "@" + f}),
 		convertToFunctionArgs([]string{"-x", "et.?", "*${1}*", "@" + f, "@" + ofile}),
-		convertToFunctionArgs([]string{"-x", "-l", "22,13,32,14", "et.?", "*${1}*", "@" + f, "@" + ofile}),
+		convertToFunctionArgs([]string{"-x", "-l", "21,12,31,13", "et.?", "*${1}*", "@" + f, "@" + ofile}),
 	}
 	defer os.Remove(ofile)
-	for _, args := range testFileArgs {
+	for i, args := range testFileArgs {
+		t.Logf("TestReplaceFile case #%d", i+1)
 		require.NoError(t, ioutil.WriteFile(f, buf.Bytes(), 0700))
 		out, err := fn.Apply(args)
 		assert.NoError(t, err)
@@ -327,7 +328,7 @@ func TestReplace(t *testing.T) {
 		for i, arg := range args {
 			sargs[i] = arg.Val.(string)
 		}
-		assert.Equal(t, len(expectStr), len(testResult), "args: %s", strings.Join(sargs, " "))
+		require.Equal(t, len(expectStr), len(testResult), "args: %s", strings.Join(sargs, " "))
 		for offs, i := 0, 1048; true; offs, i = i, i+1048 {
 			if i < len(bout) {
 				require.Equal(t, expectStr[offs:i], testResult[offs:i], "segments %d:%d", offs, i)
