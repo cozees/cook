@@ -86,7 +86,7 @@ var stmtTestCase = []*inout{
 	{in: "V = A + 1 * C ?? 1 + 2 * B", so: "\nV = (A+(1*C)) ?? (1+(2*B))\n"},
 	{in: "V = A ?? B ?? C ?? D", so: "\nV = A ?? B ?? C ?? D\n"},
 	{in: "V = A ?? false", so: "\nV = A ?? false\n"},
-	{in:"C = A * 1.2 ?? false", so:"\nC = (A*1.2) ?? false\n"},
+	{in: "C = A * 1.2 ?? false", so: "\nC = (A*1.2) ?? false\n"},
 	{in: "V = A ? 123 : B", so: "\nV = A ? 123 : B\n"},
 	{in: "V = A ? 123 : B ? 321 : C", so: "\nV = A ? 123 : B ? 321 : C\n"},
 	{in: "V = A ? 123 : B + 123 * 2", so: "\nV = A ? 123 : (B+(123*2))\n"},
