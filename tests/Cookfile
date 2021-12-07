@@ -1,0 +1,96 @@
+include "Cookfile.second"
+include "Cookfile.third"
+
+initialize:
+    @print initialized
+
+finalize:
+    @print finalized
+
+testVar:
+    A = INPUT
+    B = "Text " + A
+    C = A * 1.2 ?? false
+    D = A * 123 ?? false
+    E = A + true ?? false
+    F = [A, B, C, D]
+    G = F + E
+    H = NO ?? 12
+    I = H == 12 ? A : G
+    @print $A $B $C $D $E $F $G $H $I
+
+testIfElse:
+    if COND {
+        if sizeof INPUT > 0 {
+            // save DATA into file OUTPUT
+            @print -e -n $DATA > ${OUTPUT}
+        } else {
+            // print DATA into stdout
+            @print -n $DATA
+        }
+    } else {
+        if sizeof INPUT < 6 {
+            @print -s -n $DATA
+        } else {
+            @print -s -e -n $DATA >> $OUTPUT
+        }
+    }
+
+testFor:
+    if CASE == 1 { // infinite loop
+        for {
+            if INPUT > 1000 {
+                break
+            } else {
+                for i in 1..200 {
+                    INPUT++
+                }
+            }
+        }
+        @print $CASE $INPUT
+    } else if CASE == 2 { // nested multiple loop
+        val = 0
+        for@out1 i in 1..200 {
+            if i % 2 == 0 {
+                for@middle1 iv, v in LIST1 {
+                    if integer(v) % 3 == 1 {
+                        i += iv
+                        val += integer(v)
+                    } else {
+                        for ik, imv in LIST2 {
+                            if imv is integer | float {
+                                i += integer(imv)
+                                val += i
+                            } else if ik % 3 == 2 {
+                                // break current loop and middle
+                                // and continue execute immediately at out1 loop
+                                val += 9
+                                continue @out1
+                            } else {
+                                val += 10
+                                continue @middle1
+                            }
+                        }
+                    }
+                }
+            } else {
+                i += 2
+                if i % 3 == 2 {
+                    i += 2
+                    val += 3
+                } else {
+                    i--
+                    val += 2
+                }
+            }
+        }
+        @print $val
+    } else if CASE == 3 {
+        for i, v in LIST {
+            @print $i $v
+        }
+    } else {
+        for k, v in MAP {
+            @print $k $v
+        }
+    }
