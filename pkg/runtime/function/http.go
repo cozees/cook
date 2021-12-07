@@ -36,7 +36,7 @@ const (
 	headerDesc = `custom http header to be include or override existing header in the request.`
 	dataDesc   = `string data to be sent to the server. Although, by default the data is an empty string, function will not send
 				  empty string to the server unless it was explicit in argument with --data "".`
-	fileDesc   = `a path to a file which it's content is being used as the data to send to the server. 
+	fileDesc = `a path to a file which it's content is being used as the data to send to the server. 
 				  Note: if both flag "file" and "data" is given at the same time then flag "file" is used instead of "data".`
 	strictDesc = `enforce the http request and response to follow the standard of http definition for each method.`
 

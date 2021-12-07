@@ -6,6 +6,7 @@ import (
 	"os"
 	osu "os/user"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -61,7 +62,6 @@ func TestFileModeParser(t *testing.T) {
 }
 
 func TestDir(t *testing.T) {
-	os.Chdir(os.TempDir())
 	path := "p1"
 	pathRecur := filepath.Join("p1", "p2", "p3")
 	// -p as recursive flag
@@ -161,6 +161,7 @@ func TestRm(t *testing.T) {
 
 func TestChangeDir(t *testing.T) {
 	cdir, err := os.Getwd()
+	require.NoError(t, err)
 	tdir := filepath.Join("test", "abc")
 	defer func() {
 		os.Chdir(cdir)
@@ -184,16 +185,21 @@ func TestChown(t *testing.T) {
 	defer os.Remove(f)
 	fn := GetFunction("chown")
 	_, err := fn.Apply(convertToFunctionArgs([]string{u, f}))
-	assert.ErrorIs(t, err, osu.UnknownUserError(u))
-	assert.Equal(t, osu.UnknownUserError(u).Error(), err.Error())
+	assert.Error(t, err)
 	_, err = fn.Apply(convertToFunctionArgs([]string{u + ":" + g, f}))
-	assert.ErrorIs(t, err, osu.UnknownUserError(u))
-	assert.Equal(t, osu.UnknownUserError(u).Error(), err.Error())
+	assert.Error(t, err)
 	_, err = fn.Apply(convertToFunctionArgs([]string{":" + g, f}))
-	assert.ErrorIs(t, err, osu.UnknownGroupError(g))
-	assert.Equal(t, osu.UnknownGroupError(g).Error(), err.Error())
+	assert.Error(t, err)
 	// verify if chown success
 	uid, gid := fmt.Sprintf("%d", os.Getuid()), fmt.Sprintf("%d", os.Getgid())
+	if runtime.GOOS == "windows" {
+		// should use GetUserName from advapi32.dll
+		// or windows.GetUserNameEx
+		user, err := osu.Lookup(os.Getenv("USERNAME"))
+		require.NoError(t, err)
+		uid, gid = user.Uid, user.Gid
+
+	}
 	assert.NoError(t, ioutil.WriteFile(f, []byte("sample text"), 0700))
 	_, err = fn.Apply(convertToFunctionArgs([]string{"-n", uid + ":" + gid, f}))
 	assert.NoError(t, err)
@@ -220,13 +226,20 @@ func TestChmod(t *testing.T) {
 		os.Remove(c)
 	}()
 	expect := func(path, perm string) {
-		stat, err := os.Stat(path)
+		mode, err := GetFDModePerm(path)
 		assert.NoError(t, err)
-		assert.Equal(t, perm, stat.Mode().Perm().String(), "file: %s", path)
+		assert.Equal(t, perm, mode.String(), "file: %s", path)
 	}
 	assert.NoError(t, os.Mkdir(a, 0700))
 	assert.NoError(t, os.Mkdir(b, 0710))
 	assert.NoError(t, os.Mkdir(c, 0730))
+	// os.Mkdir will ignore permission on window
+	if runtime.GOOS == "windows" {
+		Chmod(a, "0700")
+		Chmod(b, "0710")
+		Chmod(c, "0730")
+	}
+	// check permission
 	expect(a, "-rwx------")
 	expect(b, "-rwx--x---")
 	// on macos go version go1.17.2 darwin/amd64, mkdir permission 0730 produce 0710 instead
@@ -283,11 +296,10 @@ func TestCopy(t *testing.T) {
 	assert.Error(t, err)
 	_, err = fn.Apply(convertToFunctionArgs([]string{"-r", d, d2}))
 	assert.NoError(t, err)
-	cpdir := filepath.Join(d2, filepath.Base(d))
-	assert.DirExists(t, cpdir)
-	expectContent(filepath.Join(cpdir, filepath.Base(fcp31)), data1)
-	expectContent(filepath.Join(cpdir, filepath.Base(fcp32)), data2)
-	expectContent(filepath.Join(cpdir, filepath.Base(fcp33)), data3)
+	assert.DirExists(t, d2)
+	expectContent(filepath.Join(d2, filepath.Base(fcp31)), data1)
+	expectContent(filepath.Join(d2, filepath.Base(fcp32)), data2)
+	expectContent(filepath.Join(d2, filepath.Base(fcp33)), data3)
 	_, err = fn.Apply(convertToFunctionArgs([]string{"-r", d + "/", d2}))
 	assert.NoError(t, err)
 	expectContent(filepath.Join(d2, filepath.Base(fcp31)), data1)

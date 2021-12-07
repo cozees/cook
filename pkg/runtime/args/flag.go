@@ -460,7 +460,7 @@ func (flags *Flags) parseInternal(args []string, fnArgs []*FunctionArg) (v inter
 		if field, err = findField(flags.Result, val, flag.Long); err != nil {
 			return
 		} else if !field.CanSet() {
-			err = fmt.Errorf("field %s was not found or not exported", flag.Long)
+			err = fmt.Errorf("field was not found or not exported for flag %s", flag.Long)
 			return
 		}
 		n := i + 1
@@ -532,7 +532,7 @@ func findField(t reflect.Type, v reflect.Value, name string) (rfield reflect.Val
 		if !found && strings.HasPrefix(tag, name) {
 			var defaultVal interface{}
 			icomma := strings.IndexByte(tag, ',')
-			if (icomma != -1 && tag[:icomma] != name) || tag != name {
+			if (icomma != -1 && tag[:icomma] != name) || (icomma == -1 && tag != name) {
 				continue
 			}
 			rfield = v.Field(i)

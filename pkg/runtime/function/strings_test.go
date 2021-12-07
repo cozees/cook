@@ -94,9 +94,6 @@ func TestSplit(t *testing.T) {
 	fn := GetFunction("ssplit")
 	for i, tc := range splitCase {
 		t.Logf("TestSplit case #%d", i+1)
-		if i == 13 {
-			print(123)
-		}
 		result, err := fn.Apply(tc.args)
 		if tc.output == nil {
 			assert.Error(t, err)

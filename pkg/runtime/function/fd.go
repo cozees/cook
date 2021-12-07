@@ -261,14 +261,6 @@ var (
 	errMissingPath      = fmt.Errorf("path argument is required")
 )
 
-func readMode(file, givenMode string) (os.FileMode, error) {
-	mode := os.FileMode(0)
-	if fmode, err := os.Stat(file); err == nil {
-		mode = fmode.Mode()
-	}
-	return fm.Parse(mode, givenMode)
-}
-
 func readPath(f Function, o *fdOptions, nonFlagCount, from int) ([]string, error) {
 	if remains := len(o.Args); nonFlagCount != -1 && remains != nonFlagCount {
 		return nil, fmt.Errorf("%s required directory path to be provided", f.Name())
@@ -281,45 +273,34 @@ func readPath(f Function, o *fdOptions, nonFlagCount, from int) ([]string, error
 	}
 }
 
-func readUserGroup(o *fdOptions) (u int, g int, err error) {
-	u, g = -1, -1
-	if len(o.Args) == 0 {
+func readUserGroup(o *fdOptions) (u, g string, err error) {
+	if len(o.Args) < 2 {
 		return u, g, fmt.Errorf("user or group is required")
 	}
 	raw := o.Args[0]
 	index := strings.IndexByte(raw, ':')
-	un, gn := raw, ""
+	u, g = raw, ""
 	if index != -1 {
-		un = raw[0:index]
-		gn = raw[index+1:]
+		u = raw[0:index]
+		g = raw[index+1:]
 	}
-	if un != "" {
+	if u != "" {
 		if !o.Numguid {
-			user, err := osu.Lookup(un)
+			user, err := osu.Lookup(u)
 			if err != nil {
-				return -1, -1, err
+				return "", "", err
 			}
-			un = user.Uid
+			u = user.Uid
 		}
-		i64, err := strconv.ParseInt(un, 10, 64)
-		if err != nil {
-			return -1, -1, err
-		}
-		u = int(i64)
 	}
-	if gn != "" {
+	if g != "" {
 		if !o.Numguid {
-			group, err := osu.LookupGroup(gn)
+			group, err := osu.LookupGroup(g)
 			if err != nil {
-				return -1, -1, err
+				return "", "", err
 			}
-			gn = group.Gid
+			g = group.Gid
 		}
-		i64, err := strconv.ParseInt(gn, 10, 64)
-		if err != nil {
-			return -1, -1, err
-		}
-		g = int(i64)
 	}
 	return
 }
@@ -330,7 +311,7 @@ func AllFileDirectoryFlags() []*args.Flags {
 
 type fdOptions struct {
 	Recursive bool   `flag:"recursive"`
-	Mode      string `flag:"mode,740"`
+	Mode      string `flag:"mode,0740"`
 	Numguid   bool   `flag:"guinum"`
 	Args      []string
 }
@@ -407,16 +388,37 @@ func copyOrMoveDir(move bool, a, b string) (bool, error) {
 	}
 	if stata.IsDir() {
 		// copy recursive include directory as well
-		if a[len(a)-1] != os.PathSeparator {
-			b = filepath.Join(b, filepath.Base(a))
-		}
 		statb, err := os.Stat(b)
-		if os.IsNotExist(err) {
-			if err = os.MkdirAll(b, stata.Mode()); err != nil {
+		dirName := filepath.Base(a)
+		skipMove := false
+	retry:
+		if err != nil && os.IsNotExist(err) {
+			var pstat os.FileInfo
+			pstat, err = os.Stat(filepath.Dir(b))
+			if os.IsNotExist(err) || !pstat.IsDir() {
+				return false, fmt.Errorf("target %s directory not existed", b)
+			} else if err = os.Mkdir(b, stata.Mode()); err != nil {
 				return false, err
 			}
+			if statb, err = os.Stat(b); err != nil {
+				panic(err)
+			}
+			skipMove = true
+			goto retry
 		} else if !statb.IsDir() {
 			return false, fmt.Errorf("target %s is not a directory", b)
+		} else if !skipMove && a[len(a)-1] != os.PathSeparator && dirName != filepath.Base(b) {
+			for {
+				b = filepath.Join(b, dirName)
+				if statb, err = os.Stat(b); os.IsNotExist(err) {
+					if err = os.Mkdir(b, stata.Mode()); err != nil {
+						return false, err
+					}
+					break
+				} else if !statb.IsDir() {
+					return false, fmt.Errorf("%s is not a directory", b)
+				}
+			}
 		}
 		err = filepath.WalkDir(a, func(path string, d fs.DirEntry, err error) error {
 			var rel string
@@ -528,7 +530,7 @@ var fdOptionsType = reflect.TypeOf((*fdOptions)(nil)).Elem()
 var mkdirFlags = &args.Flags{
 	Flags: []*args.Flag{
 		{Short: "p", Long: "recursive", Description: mkdirRecurDesc},
-		{Short: "-m", Long: "mode", Description: mkdirMode},
+		{Short: "m", Long: "mode", Description: mkdirMode},
 	},
 	Result:      fdOptionsType,
 	FuncName:    "mkdir",
@@ -628,7 +630,7 @@ func init() {
 			return nil, err
 		}
 		for _, path := range paths {
-			m, err := readMode(path, opts.Mode)
+			m, err := fm.Parse(0, opts.Mode)
 			if err != nil {
 				return nil, err
 			}
@@ -673,7 +675,7 @@ func init() {
 		if opts.Recursive {
 			for _, path := range paths {
 				err = filepath.WalkDir(path, func(path string, d fs.DirEntry, err error) error {
-					return os.Chown(path, u, g)
+					return chown(path, u, g)
 				})
 				if err != nil {
 					return nil, err
@@ -681,7 +683,7 @@ func init() {
 			}
 		} else {
 			for _, path := range paths {
-				if err = os.Chown(path, u, g); err != nil {
+				if err = chown(path, u, g); err != nil {
 					return nil, err
 				}
 			}
@@ -695,11 +697,8 @@ func init() {
 		if err != nil {
 			return nil, err
 		}
-		chmod := func(path string) error {
-			m, err := readMode(path, opts.Args[0])
-			if err != nil {
-				return err
-			} else if err = os.Chmod(path, m); err != nil {
+		handleChmod := func(path string) error {
+			if err = Chmod(path, opts.Args[0]); err != nil {
 				return err
 			}
 			return nil
@@ -707,7 +706,7 @@ func init() {
 		if opts.Recursive {
 			for _, path := range paths {
 				err = filepath.WalkDir(path, func(path string, d fs.DirEntry, err error) error {
-					return chmod(path)
+					return handleChmod(path)
 				})
 				if err != nil {
 					return nil, err
@@ -715,7 +714,7 @@ func init() {
 			}
 		} else {
 			for _, path := range paths {
-				if err = chmod(path); err != nil {
+				if err = handleChmod(path); err != nil {
 					return nil, err
 				}
 			}

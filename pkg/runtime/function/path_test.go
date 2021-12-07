@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/cozees/cook/pkg/runtime/args"
@@ -28,63 +30,69 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
+	root := "/"
+	if runtime.GOOS == "windows" {
+		root = "C:\\"
+	}
+	// We want to use filepath.Join unfortunately it call clean as well thus .. and . it being remove
+	pathSample1 := strings.Join([]string{"abc", "two", "..", "test", ".", "aa", "bb.txt"}, fmt.Sprintf("%c", os.PathSeparator))
 	pathTestCase = []*pathInOut{
-		{
+		{ // case 1
 			name:   "pabs",
-			args:   convertToFunctionArgs([]string{"test/abc/text.txt"}),
-			output: fmt.Sprintf("%s/test/abc/text.txt", cdir),
+			args:   convertToFunctionArgs([]string{filepath.Join("test", "abc", "text.txt")}),
+			output: filepath.Join(cdir, "test", "abc", "text.txt"),
 		},
-		{
+		{ // case 2
 			name:   "pabs",
-			args:   convertToFunctionArgs([]string{"/usr/abc/text.txt"}),
-			output: "/usr/abc/text.txt",
+			args:   convertToFunctionArgs([]string{root + filepath.Join("usr", "abc", "text.txt")}),
+			output: root + filepath.Join("usr", "abc", "text.txt"),
 		},
-		{
+		{ // case 3
 			name:   "pbase",
-			args:   convertToFunctionArgs([]string{"test/aa/bb"}),
+			args:   convertToFunctionArgs([]string{filepath.Join("test", "aa", "bb")}),
 			output: "bb",
 		},
-		{
+		{ // case 4
 			name:   "pbase",
-			args:   convertToFunctionArgs([]string{"test/aa/bb.txt"}),
+			args:   convertToFunctionArgs([]string{filepath.Join("test", "aa", "bb.txt")}),
 			output: "bb.txt",
 		},
-		{
+		{ // case 5
 			name:   "pext",
-			args:   convertToFunctionArgs([]string{"test/aa/bb"}),
+			args:   convertToFunctionArgs([]string{filepath.Join("test", "aa", "bb")}),
 			output: "",
 		},
-		{
+		{ // case 6
 			name:   "pext",
-			args:   convertToFunctionArgs([]string{"test/aa/bb.txt"}),
+			args:   convertToFunctionArgs([]string{filepath.Join("test", "aa", "bb.txt")}),
 			output: ".txt",
 		},
-		{
+		{ // case 7
 			name:   "pdir",
-			args:   convertToFunctionArgs([]string{"test/aa/bb.txt"}),
-			output: "test/aa",
+			args:   convertToFunctionArgs([]string{filepath.Join("test", "aa", "bb.txt")}),
+			output: filepath.Join("test", "aa"),
 		},
-		{
+		{ // case 8
 			name:   "pclean",
-			args:   convertToFunctionArgs([]string{"abc/two/../test/./aa/bb.txt"}),
-			output: "abc/test/aa/bb.txt",
+			args:   convertToFunctionArgs([]string{filepath.Join("abc", "two", "..", "test", ".", "aa", "bb.txt")}),
+			output: filepath.Join("abc", "test", "aa", "bb.txt"),
 		},
-		{
+		{ // case 9
 			name:   "psplit",
-			args:   convertToFunctionArgs([]string{"abc/two/../test/./aa/bb.txt"}),
+			args:   convertToFunctionArgs([]string{pathSample1}),
 			output: []string{"abc", "two", "..", "test", ".", "aa", "bb.txt"},
 		},
-		{
+		{ // case 10
 			name:   "prel",
-			args:   convertToFunctionArgs([]string{"/test/abc/test", "abc/two/../test/./aa/bb.txt"}),
+			args:   convertToFunctionArgs([]string{root + filepath.Join("test", "abc", "test"), filepath.Join("abc", "two", "..", "test", ".", "aa", "bb.txt")}),
 			output: nil,
 		},
-		{
+		{ // case 11
 			name:   "prel",
-			args:   convertToFunctionArgs([]string{"/test/abc/test", "/test/abc/two/../test/./aa/bb.txt"}),
-			output: "aa/bb.txt",
+			args:   convertToFunctionArgs([]string{root + filepath.Join("test", "abc", "test"), root + filepath.Join("test", "abc", "two", "..", "test", ".", "aa", "bb.txt")}),
+			output: filepath.Join("aa", "bb.txt"),
 		},
-		{
+		{ // case 12
 			name:   "pglob",
 			args:   convertToFunctionArgs([]string{"./*.go"}),
 			output: allGoFile,

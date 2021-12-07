@@ -38,18 +38,28 @@ func main() {
 
 func executeFunction(opts *args.MainOptions) {
 	fn := function.GetFunction(opts.FuncMeta.Name)
+	if fn == nil {
+		fmt.Fprintln(os.Stderr, "function", opts.FuncMeta.Name, "is not exist")
+		os.Exit(1)
+	}
 	result, err := fn.Apply(opts.FuncMeta.Args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error while execute function @%s: %s\n", opts.FuncMeta.Name, err.Error())
 		os.Exit(1)
 	} else if result == nil {
-		fmt.Fprintf(os.Stdout, "nil")
+		fmt.Fprintf(os.Stdout, "\n")
 		os.Exit(0)
 	}
 	// build output
-	var output func(w *bufio.Writer, v reflect.Value, vk reflect.Kind) error
-	output = func(w *bufio.Writer, v reflect.Value, vk reflect.Kind) (err error) {
+	var output func(w *bufio.Writer, v reflect.Value) error
+	output = func(w *bufio.Writer, v reflect.Value) (err error) {
+		vk := v.Kind()
+	revisit:
 		switch {
+		case vk == reflect.Interface:
+			v = v.Elem()
+			vk = v.Kind()
+			goto revisit
 		case vk <= reflect.Complex128 || vk == reflect.String:
 			if _, err = w.WriteString(fmt.Sprintf("%v", v.Interface())); err != nil {
 				return err
@@ -61,8 +71,10 @@ func executeFunction(opts *args.MainOptions) {
 			size := v.Len()
 			for i := 0; i < size; i++ {
 				sv := v.Index(i)
-				if err = output(w, sv, sv.Kind()); err != nil {
+				if err = output(w, sv); err != nil {
 					return err
+				} else if i+1 < size {
+					w.WriteString(", ")
 				}
 			}
 			if err = w.WriteByte(']'); err != nil {
@@ -73,16 +85,19 @@ func executeFunction(opts *args.MainOptions) {
 				return err
 			}
 			keys := v.MapRange()
-			for keys.Next() {
+			for hasItem := keys.Next(); hasItem; {
 				kv := keys.Key()
-				if err = output(w, kv, kv.Kind()); err != nil {
+				sv := v.MapIndex(kv)
+				// move next right away so we can check later one that to add comma
+				hasItem = keys.Next()
+				if err = output(w, kv); err != nil {
 					return err
 				} else if _, err = w.WriteString(": "); err != nil {
 					return err
-				}
-				sv := v.MapIndex(kv)
-				if err = output(w, sv, sv.Kind()); err != nil {
+				} else if err = output(w, sv); err != nil {
 					return err
+				} else if hasItem {
+					w.WriteString(", ")
 				}
 			}
 			if err = w.WriteByte('}'); err != nil {
@@ -95,7 +110,7 @@ func executeFunction(opts *args.MainOptions) {
 				if r, ok := iv.(io.ReadCloser); ok {
 					defer r.Close()
 					reader = r
-				} else if r := iv.(io.Reader); ok {
+				} else if r, ok := iv.(io.Reader); ok {
 					reader = r
 				}
 				if reader != nil {
@@ -111,7 +126,7 @@ func executeFunction(opts *args.MainOptions) {
 	}
 	w := bufio.NewWriter(os.Stdout)
 	defer w.Flush()
-	if err = output(w, reflect.ValueOf(result), reflect.TypeOf(result).Kind()); err != nil {
+	if err = output(w, reflect.ValueOf(result)); err != nil {
 		fmt.Fprintf(os.Stderr, "error while writing function @%s output: %s\n", opts.FuncMeta.Name, err.Error())
 		os.Exit(1)
 	}
