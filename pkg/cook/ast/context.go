@@ -152,7 +152,7 @@ type forCookContext interface {
 }
 
 type implForContext struct {
-	*implContext
+	cookContext
 	loops         []string
 	breakIndex    int
 	continueIndex int

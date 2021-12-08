@@ -545,7 +545,7 @@ func (c *CallExpr) evaluate(ctx cookContext) (v interface{}, vk reflect.Kind) {
 		if t == nil {
 			f := ctx.getFunction(c.Name)
 			if f == nil {
-				ctx.onError(fmt.Errorf("target %s is not exist", v))
+				ctx.onError(fmt.Errorf("target or function %s is not exist", c.Name))
 			} else if args := c.funcArgs(ctx); !ctx.hasCanceled() {
 				if v, err = f.Apply(args); err != nil {
 					ctx.onError(err)

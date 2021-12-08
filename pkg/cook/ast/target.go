@@ -26,7 +26,7 @@ func NewTarget(name string) Target {
 func (it *implTarget) Name() string { return it.name }
 
 func (it *implTarget) run(ctx cookContext, args []string) {
-	it.implForContext = &implForContext{implContext: ctx.(*implContext), breakIndex: -1, continueIndex: -1}
+	it.implForContext = &implForContext{cookContext: ctx, breakIndex: -1, continueIndex: -1}
 	dir, err := os.Getwd()
 	if err != nil {
 		ctx.onError(err)

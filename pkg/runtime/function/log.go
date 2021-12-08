@@ -44,21 +44,24 @@ var printFlags = &args.Flags{
 
 var printFn = NewBaseFunction(printFlags, func(bf Function, i interface{}) (v interface{}, err error) {
 	opts := i.(*printOption)
-	buf := bytes.NewBufferString("")
-	s := ""
-	for i := range opts.Args {
-		if s, err = toString(opts.Args[i]); err != nil {
-			return nil, err
+	txt := ""
+	if len(opts.Args) > 0 {
+		buf := bytes.NewBufferString("")
+		s := ""
+		for i := range opts.Args {
+			if s, err = toString(opts.Args[i]); err != nil {
+				return nil, err
+			}
+			if opts.Strip {
+				buf.WriteByte(' ')
+				buf.WriteString(strings.TrimSpace(s))
+			} else {
+				buf.WriteByte(' ')
+				buf.WriteString(s)
+			}
 		}
-		if opts.Strip {
-			buf.WriteByte(' ')
-			buf.WriteString(strings.TrimSpace(s))
-		} else {
-			buf.WriteByte(' ')
-			buf.WriteString(s)
-		}
+		txt = buf.String()[1:]
 	}
-	txt := buf.String()[1:]
 	if opts.OmitNL {
 		if opts.Echo {
 			return txt, nil

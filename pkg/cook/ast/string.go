@@ -82,7 +82,7 @@ func (sbe *sbEncoder) Build(offs int, f *token.File) Expr {
 		// no need to export string binding expr, a $VAR or ${VAR} only will be treat as
 		// identifier as value itself evaluate later on when execute
 		return sbe.sb.exprs[0]
-	} else if len(sbe.sb.exprs) > 1 {
+	} else if len(sbe.sb.exprs) >= 1 {
 		sbe.sb.baseExpr = BaseExpr(offs, f)
 		return sbe.sb
 	} else {

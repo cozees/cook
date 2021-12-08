@@ -313,6 +313,7 @@ type fdOptions struct {
 	Recursive bool   `flag:"recursive"`
 	Mode      string `flag:"mode,0740"`
 	Numguid   bool   `flag:"guinum"`
+	Silence   bool   `flag:"silence"`
 	Args      []string
 }
 
@@ -555,6 +556,7 @@ var rmdirFlags = &args.Flags{
 var rmFlags = &args.Flags{
 	Flags: []*args.Flag{
 		{Short: "r", Long: "recursive", Description: "Remove all file or directory in hierarchy of the given directory."},
+		{Short: "s", Long: "silence", Description: "Tell the function to return without reporting error."},
 	},
 	Result:    fdOptionsType,
 	FuncName:  "rm",
@@ -649,8 +651,11 @@ func init() {
 		return removeAll(true, f, i)
 	}))
 
-	registerFunction(NewBaseFunction(rmFlags, func(f Function, i interface{}) (interface{}, error) {
-		return removeAll(false, f, i)
+	registerFunction(NewBaseFunction(rmFlags, func(f Function, i interface{}) (v interface{}, err error) {
+		if v, err = removeAll(false, f, i); err != nil && i.(*fdOptions).Silence {
+			err = nil
+		}
+		return
 	}))
 
 	registerFunction(NewBaseFunction(chdirFlags, func(f Function, i interface{}) (interface{}, error) {

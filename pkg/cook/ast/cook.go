@@ -394,10 +394,11 @@ func (fs *ForStatement) evaluate(ctx cookContext) {
 		case reflect.Array, reflect.Slice:
 			fcc.enterLoop(forInd)
 			defer fcc.exitLoop(forInd)
-			for i, iv := range v.([]interface{}) {
+			rv := reflect.ValueOf(v)
+			for i := 0; i < rv.Len(); i++ {
 				localCtx[i1] = int64(i)
 				if i2 != "" {
-					localCtx[i2] = iv
+					localCtx[i2] = rv.Index(i).Interface()
 				}
 				if eval(fcc) {
 					break
@@ -407,10 +408,11 @@ func (fs *ForStatement) evaluate(ctx cookContext) {
 		case reflect.Map:
 			fcc.enterLoop(forInd)
 			defer fcc.exitLoop(forInd)
-			for k, kv := range v.(map[interface{}]interface{}) {
+			rv := reflect.ValueOf(v)
+			for _, k := range rv.MapKeys() {
 				localCtx[i1] = k
 				if i2 != "" {
-					localCtx[i2] = kv
+					localCtx[i2] = rv.MapIndex(k).Interface()
 				}
 				if eval(fcc) {
 					break
