@@ -22,7 +22,7 @@ jobs:
       run: go build -v ./...
 
     - name: Test
-      run: go test -v `go list ./... | grep -v pkg`
+      run: go test -v `go list ./... | grep pkg`
   
     - name: TestBinary
       run: go test -v -run UB github.com/cozees/cook/tests/...
