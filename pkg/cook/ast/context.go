@@ -1,6 +1,7 @@
 package ast
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -8,221 +9,207 @@ import (
 	"github.com/cozees/cook/pkg/runtime/function"
 )
 
-type cookContext interface {
-	// add local scope for the tail of scope list.
-	addScope() map[string]interface{}
-	// remove last scope from the list
-	popScope()
-
-	getTargets() []Target
-	getTarget(name string) Target
-	getFunction(name string) function.Function
-
-	getVariable(name string) (value interface{}, kind reflect.Kind, fromEnv bool)
-	setVariable(name string, val interface{}) error
-
-	position(be *baseExpr)
-	onError(err error)
-	hasCanceled() bool
-
-	// tell context to record the error instead of printing out
-	// and ignore it so no cancel is occurred
-	recordFailure()
-	hasFailure(reset bool) bool
-
-	restrictVariable(name string, kind reflect.Kind)
+type Scope interface {
+	GetVariable(name string) (value interface{}, kind reflect.Kind, fromEnv bool)
+	SetVariable(name string, value interface{}, kind reflect.Kind, bubble func(v interface{}, k reflect.Kind) error) bool
+	SetReturnValue(v interface{}, kind reflect.Kind)
+	GetReturnValue() (v interface{}, kind reflect.Kind)
 }
 
-type implContext struct {
-	locals        []map[string]interface{}
-	gvar          map[string]interface{}
-	targets       []Target
-	targetsByName map[string]int
-	isCanceled    bool
-	curBaseExpr   *baseExpr
-
-	restrictVar map[string]reflect.Kind
-
-	// record last error
-	lastError   error
-	recordError bool
+type ivar struct {
+	value  interface{}
+	kind   reflect.Kind
+	bubble func(v interface{}, kind reflect.Kind) error
 }
 
-func (icp *implContext) restrictVariable(name string, kind reflect.Kind) {
-	if kind == reflect.Invalid {
-		delete(icp.restrictVar, name)
-	} else {
-		icp.restrictVar[name] = kind
-	}
+type xScope struct {
+	parent       *xScope
+	hasChild     bool
+	returnResult *ivar
+	vars         map[string]*ivar
 }
 
-func (icp *implContext) recordFailure() { icp.recordError = true }
-func (icp *implContext) hasFailure(reset bool) bool {
-	if reset {
-		defer func() {
-			icp.recordError = false
-			icp.lastError = nil
-		}()
-	}
-	return icp.lastError != nil
-}
-
-func (icp *implContext) addScope() map[string]interface{} {
-	store := make(map[string]interface{})
-	icp.locals = append(icp.locals, store)
-	return store
-}
-
-func (icp *implContext) popScope()            { icp.locals = icp.locals[0 : len(icp.locals)-1] }
-func (icp *implContext) getTargets() []Target { return icp.targets }
-
-func (icp *implContext) getTarget(name string) Target {
-	if index, ok := icp.targetsByName[name]; !ok {
-		return nil
-	} else {
-		return icp.targets[index]
-	}
-}
-
-func (icp *implContext) getFunction(name string) function.Function {
-	return function.GetFunction(name)
-}
-
-func (icp *implContext) getVariable(name string) (value interface{}, kind reflect.Kind, fromEnv bool) {
-	for i := len(icp.locals) - 1; i >= 0; i-- {
-		if v, ok := icp.locals[i][name]; ok {
-			value, kind, fromEnv = v, reflect.ValueOf(v).Kind(), false
+func (xs *xScope) GetVariable(name string) (value interface{}, kind reflect.Kind, fromEnv bool) {
+	if iv, ok := xs.vars[name]; !ok {
+		if xs.parent == nil {
+			goto tryEnv
+		}
+		if value, kind, fromEnv = xs.parent.GetVariable(name); kind != reflect.Invalid {
 			return
 		}
+	} else {
+		value, kind = iv.value, iv.kind
+		return
 	}
-	if v, ok := icp.gvar[name]; ok {
-		value, kind, fromEnv = v, reflect.ValueOf(v).Kind(), false
-	} else if v := os.Getenv(name); v != "" {
-		value, kind, fromEnv = v, reflect.String, true
+tryEnv:
+	if value = os.Getenv(name); value.(string) != "" {
+		kind, fromEnv = reflect.String, true
+	}
+	return nil, 0, false
+}
+
+func (xs *xScope) SetVariable(name string, value interface{}, kind reflect.Kind, bubble func(v interface{}, k reflect.Kind) error) bool {
+	switch kind {
+	case reflect.Int64, reflect.Float64, reflect.Bool, reflect.String, reflect.Slice, reflect.Map, TransformSlice, TransformMap:
+	default:
+		panic(fmt.Sprintf("cook internal error: variable '%s' value: %v has an invalid type %s", name, value, kind))
+	}
+
+	if iv, ok := xs.vars[name]; ok {
+		iv.value, iv.kind = value, kind
+		if iv.bubble != nil {
+			iv.bubble(value, kind)
+		}
+	} else if xs.hasChild {
+		return xs.parent != nil && xs.parent.SetVariable(name, value, kind, bubble)
+	} else if xs.parent == nil || !xs.parent.SetVariable(name, value, kind, bubble) {
+		// we here mean not variable is no exist anywhere
+		xs.vars[name] = &ivar{value: value, kind: kind, bubble: bubble}
+	}
+	return true
+}
+
+func (xs *xScope) SetReturnValue(v interface{}, kind reflect.Kind) {
+	xs.returnResult = &ivar{value: v, kind: kind}
+}
+
+func (xs *xScope) GetReturnValue() (v interface{}, kind reflect.Kind) {
+	if xs.returnResult != nil {
+		v, kind = xs.returnResult.value, xs.returnResult.kind
+		xs.returnResult = nil
 	}
 	return
 }
 
-func (icp *implContext) setVariable(name string, val interface{}) error {
-	if sk, ok := icp.restrictVar[name]; ok {
-		if sk != reflect.ValueOf(val).Kind() {
-			return fmt.Errorf("variable \"%s\" must keep it origin type %s", name, sk)
+type Context interface {
+	Scope
+	EnterBlock(forLoop bool, loopLabel string) (Scope, int)
+	ExitBlock(index int)
+	ShouldBreak(fromLoop bool) bool
+	ResetBreakContinue()
+	Break(label string) error
+	Continue(label string) error
+	GetCommand(name string) function.Function
+	GetTarget(name string) *Target
+	GetFunction(name string) *Function
+}
+
+type xContext struct {
+	scope *xScope
+	cook  *cook
+	// for loop properties for break & continue
+	loopsLabel []string
+	continueAt int
+	breakAt    int
+	loops      []int
+}
+
+func (xc *xContext) GetVariable(name string) (value interface{}, kind reflect.Kind, fromEnv bool) {
+	return xc.scope.GetVariable(name)
+}
+
+func (xc *xContext) SetVariable(name string, value interface{}, kind reflect.Kind, bubble func(v interface{}, k reflect.Kind) error) bool {
+	return xc.scope.SetVariable(name, value, kind, bubble)
+}
+
+func (xc *xContext) SetReturnValue(v interface{}, kind reflect.Kind) {
+	xc.scope.SetReturnValue(v, kind)
+}
+
+func (xc *xContext) GetReturnValue() (v interface{}, kind reflect.Kind) {
+	return xc.scope.GetReturnValue()
+}
+
+func (xc *xContext) GetFunction(name string) *Function        { return xc.cook.fns[name] }
+func (xc *xContext) GetCommand(name string) function.Function { return function.GetFunction(name) }
+func (xc *xContext) GetTarget(name string) *Target {
+	if ind, ok := xc.cook.targets[name]; ok && len(xc.cook.targetIndexes) > 0 {
+		return xc.cook.targetIndexes[ind]
+	} else {
+		return nil
+	}
+}
+
+func (xc *xContext) EnterBlock(forLoop bool, loopLabel string) (Scope, int) {
+	xc.scope = &xScope{parent: xc.scope, vars: make(map[string]*ivar)}
+	loopIndex := -1
+	if forLoop {
+		xc.loopsLabel = append(xc.loopsLabel, loopLabel)
+		loopIndex = len(xc.loopsLabel) - 1
+		xc.loops = append(xc.loops, loopIndex)
+	}
+	return xc.scope, loopIndex
+}
+
+func (xc *xContext) ExitBlock(index int) {
+	if index >= 0 {
+		if index != len(xc.loopsLabel)-1 {
+			panic(fmt.Sprintf("wrong exit loop block index %d in a loop %d", index, len(xc.loopsLabel)))
+		}
+		xc.loopsLabel = xc.loopsLabel[:index]
+		xc.loops = xc.loops[:len(xc.loops)-1]
+	}
+	if xc.scope.parent == nil {
+		panic("exit block call on outter block")
+	}
+	xc.scope = xc.scope.parent
+}
+
+func (xc *xContext) ShouldBreak(fromLoop bool) bool {
+	if len(xc.loopsLabel) > 0 {
+		loop := xc.currentLoop()
+		return (xc.breakAt >= 0 && xc.breakAt <= loop) ||
+			(xc.continueAt >= 0 && (xc.continueAt < loop || (!fromLoop && xc.continueAt == loop)))
+	}
+	return false
+}
+
+func (xc *xContext) ResetBreakContinue() { xc.breakAt, xc.continueAt = -1, -1 }
+
+func (xc *xContext) ShouldContinue() bool {
+	loop := xc.currentLoop()
+	return len(xc.loopsLabel) > 0 && xc.breakAt >= 0 && xc.continueAt >= 0 && xc.continueAt == loop
+}
+
+func (xc *xContext) currentLoop() int {
+	loop := -1
+	if len(xc.loops) > 0 {
+		loop = xc.loops[len(xc.loops)-1]
+	}
+	return loop
+}
+
+func (xc *xContext) Break(label string) error {
+	if len(xc.loopsLabel) == 0 {
+		return errors.New("statement break can only be use inside for loop")
+	}
+	// break on current loop, no need to look for outter loop
+	if label == "" {
+		xc.breakAt = len(xc.loopsLabel) - 1
+	} else {
+		for i := len(xc.loopsLabel) - 1; i >= 0; i-- {
+			if xc.loopsLabel[i] == label {
+				xc.breakAt = i
+				return nil
+			}
 		}
 	}
+	return fmt.Errorf("break at lable %s not exist", label)
+}
 
-	last := len(icp.locals) - 1
-	for i := last; i >= 0; i-- {
-		if _, ok := icp.locals[i][name]; ok {
-			icp.locals[i][name] = val
-			return nil
+func (xc *xContext) Continue(label string) error {
+	if len(xc.loopsLabel) == 0 {
+		return errors.New("statement continue can only be use inside for loop")
+	}
+	if label == "" {
+		xc.continueAt = len(xc.loopsLabel) - 1
+	} else {
+		for i := len(xc.loopsLabel) - 1; i >= 0; i-- {
+			if xc.loopsLabel[i] == label {
+				xc.continueAt = i
+				return nil
+			}
 		}
 	}
-	// if exist in global replace the value otherwise create in local scope only.
-	if _, ok := icp.gvar[name]; ok || last < 0 {
-		icp.gvar[name] = val
-	} else {
-		icp.locals[last][name] = val
-	}
-	return nil
-}
-
-func (icp *implContext) hasCanceled() bool     { return icp.isCanceled }
-func (icp *implContext) position(be *baseExpr) { icp.curBaseExpr = be }
-
-func (icp *implContext) onError(err error) {
-	if icp.recordError {
-		icp.lastError = err
-	} else {
-		fmt.Fprintf(os.Stderr, "%s %s\n", icp.curBaseExpr.PosInfo(), err.Error())
-		icp.isCanceled = true
-	}
-}
-
-type forCookContext interface {
-	cookContext
-	reset()
-	register(id string) (index int)
-	unregister(index int)
-	breakWith(id string) error
-	continueWith(id string) error
-	shouldBreak(ind int) bool
-	currentLoop() int
-	enterLoop(index int)
-	exitLoop(index int)
-}
-
-type implForContext struct {
-	cookContext
-	loops         []string
-	breakIndex    int
-	continueIndex int
-	loopStack     []int
-}
-
-func (it *implForContext) reset() { it.breakIndex, it.continueIndex = -1, -1 }
-
-func (it *implForContext) currentLoop() int {
-	if len(it.loopStack) > 0 {
-		return it.loopStack[len(it.loopStack)-1]
-	} else {
-		return -1
-	}
-}
-
-func (it *implForContext) enterLoop(index int) {
-	it.loopStack = append(it.loopStack, index)
-}
-
-func (it *implForContext) exitLoop(index int) {
-	if len(it.loopStack) > 0 {
-		it.loopStack = it.loopStack[:len(it.loopStack)-1]
-	}
-}
-
-func (it *implForContext) shouldBreak(index int) bool {
-	return (it.breakIndex != -1 && it.breakIndex <= index) || (it.continueIndex != -1 && it.continueIndex < index)
-}
-
-func (it *implForContext) breakWith(id string) error {
-	if id == "" {
-		it.breakIndex = len(it.loops) - 1
-	} else if i, err := it.isLoopExist(id); err != nil {
-		return err
-	} else {
-		it.breakIndex = i
-	}
-	return nil
-}
-
-func (it *implForContext) continueWith(id string) error {
-	if id == "" {
-		it.continueIndex = len(it.loops) - 1
-	} else if i, err := it.isLoopExist(id); err != nil {
-		return err
-	} else {
-		it.continueIndex = i
-	}
-	return nil
-}
-
-func (it *implForContext) isLoopExist(id string) (int, error) {
-	for i, n := range it.loops {
-		if n == id {
-			return i, nil
-		}
-	}
-	return -1, fmt.Errorf("for name %s not found", id)
-}
-
-func (it *implForContext) register(id string) (index int) {
-	it.loops = append(it.loops, id)
-	return len(it.loops) - 1
-}
-
-func (it *implForContext) unregister(index int) {
-	if 0 <= index && index < len(it.loops) {
-		it.loops = append(it.loops[:index], it.loops[index+1:]...)
-	} else {
-		panic(fmt.Sprintf("loop index out of range %d, should be between 0, %d", index, len(it.loops)))
-	}
+	return fmt.Errorf("continue at lable %s not exist", label)
 }

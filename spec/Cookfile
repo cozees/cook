@@ -1,0 +1,35 @@
+A = 123
+B = true
+C = "string double quote"
+D = 'string single quote'
+E = string without quote
+F = [A, B, C]
+G = {A: 1, 2: D}
+H = 'it also possible to write $C or $D or $E with interpolion or string literal.'
+A = A + B
+
+@windows
+target:
+    @print $B
+
+target:
+    @print $A
+    for i in [0..$A) {
+        if i > 10 {
+            @print $i
+        } else {
+            @print 'value' i 'is' smaller than 10
+        }
+    }
+
+factorial(a) {
+    result = 1
+    if a < 0 {
+        return nil
+    } else {
+        for i in 2..a {
+            result *= i 
+        }
+    }
+    return result
+}

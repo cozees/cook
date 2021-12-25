@@ -6,151 +6,165 @@ import (
 	"github.com/cozees/cook/pkg/cook/ast"
 	"github.com/cozees/cook/pkg/cook/token"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-type inout struct {
-	in string
-	so string
+func createTestParser(t *testing.T, src string) *parser {
+	f := token.NewFile("sample", len(src))
+	p := NewParser().(*parser)
+	require.NoError(t, p.init(f, []byte(src)))
+	return p
 }
 
-var binaryExprTestCase = []*inout{
-	{in: "2 + 6 * 2", so: "(2+(6*2))"},
-	{in: "5 * 3 + 1", so: "((5*3)+1)"},
-	{in: "V + 2 / 5", so: "(V+(2/5))"},
-	{in: "V * A + 1 / 2", so: "((V*A)+(1/2))"},
-	{in: "+V - 2 + 3 / 4 * 5", so: "((+V-2)+((3/4)*5))"},
-	{in: "V > 1 + 3 / 5", so: "(V>(1+(3/5)))"},
-	{in: "1 + 2 * V > 9 + A / 5", so: "((1+(2*V))>(9+(A/5)))"},
-	{in: "1 << 2 > 2 * 1 * 1 - A", so: "((1<<2)>(((2*1)*1)-A))"},
-	{in: "'abc text' + 1 * 2", so: "(\"abc text\"+(1*2))"},
-	{in: "!V == false", so: "(!V==false)"},
-	{in: "[1, 2, V, 2.3, 'text'] + 1", so: "([1, 2, V, 2.3, \"text\"]+1)"},
-	// parsed but failed to evaluate
-	{in: "!V != 2 == 2", so: "((!V!=2)==2)"},
-	{in: "V > 2 > 3 + 1", so: "((V>2)>(3+1))"}, // boolean compare with integer failed
-	{in: "V * A > 1 + V % 2 < 2 * 6", so: "(((V*A)>(1+(V%2)))<(2*6))"},
+type parserInputCase struct {
+	in  string
+	out string
 }
 
-func TestBinaryExprParser(t *testing.T) {
-	p := NewParser().(*implParser)
-	files := token.NewFiles()
-	for _, vio := range binaryExprTestCase {
-		src := []byte(vio.in)
-		f, err := files.AddFileInMemory("test/Cookfile", src, len(src))
-		assert.NoError(t, err)
-		p.s = NewScanner(f, src, p.errorHandler)
-		p.init()
-		expr := p.parseBinaryExpr(token.LowestPrec + 1)
-		assert.Equal(t, vio.so, expr.String())
-	}
-}
-
-var operandTestCase = []*inout{
-	{in: "123", so: "123"},
-	{in: "V", so: "V"},
-	{in: "12.34", so: "12.34"},
-	{in: "'text with single\\' quote'", so: "\"text with single\\' quote\""},
-	{in: "false", so: "false"},
-	{in: "true", so: "true"},
-	{in: "[1, 2, 2.3, V]", so: "[1, 2, 2.3, V]"},
-	{in: "[1, {1:2, 3.2:1}, V]", so: "[1, {1: 2, 3.2: 1}, V]"},
-	{in: "{1:2, V:V1, 3.32:'text', 'abc':V2}", so: "{1: 2, V: V1, 3.32: \"text\", \"abc\": V2}"},
-	{in: "V[1]", so: "V[1]"},
-	{in: "V[V]", so: "V[V]"},
-	{in: "V[V + 1]", so: "V[(V+1)]"},
-}
-
-func TestOperandParser(t *testing.T) {
-	p := NewParser().(*implParser)
-	files := token.NewFiles()
-	for _, vio := range operandTestCase {
-		src := []byte(vio.in)
-		f, err := files.AddFileInMemory("test/Cookfile", src, len(src))
-		assert.NoError(t, err)
-		p.s = NewScanner(f, src, p.errorHandler)
-		p.init()
-		p.next()
-		expr := p.parseOperand()
-		assert.Equal(t, vio.so, expr.String())
-	}
-}
-
-var stmtTestCase = []*inout{
-	{in: "exit 1", so: "\nexit 1\n"},
-	{in: "exit 201", so: "\nexit 201\n"},
-	{in: "V = integer(A)", so: "\nV = integer(A)\n"},
-	{in: "V = float(\"124.2\")", so: "\nV = float(\"124.2\")\n"},
-	{in: "V = A is integer", so: "\nV = A is integer\n"},
-	{in: "V = A is integer | float | string", so: "\nV = A is integer | float | string\n"},
-	{in: "V = A ?? B", so: "\nV = A ?? B\n"},
-	{in: "V = A + 1 * C ?? 1 + 2 * B", so: "\nV = (A+(1*C)) ?? (1+(2*B))\n"},
-	{in: "V = A ?? B ?? C ?? D", so: "\nV = A ?? B ?? C ?? D\n"},
-	{in: "V = A ?? false", so: "\nV = A ?? false\n"},
-	{in: "C = A * 1.2 ?? false", so: "\nC = (A*1.2) ?? false\n"},
-	{in: "V = A ? 123 : B", so: "\nV = A ? 123 : B\n"},
-	{in: "V = A ? 123 : B ? 321 : C", so: "\nV = A ? 123 : B ? 321 : C\n"},
-	{in: "V = A ? 123 : B + 123 * 2", so: "\nV = A ? 123 : (B+(123*2))\n"},
-	{in: "V = A ? 123 + C * 2 : B + 123 * 2", so: "\nV = A ? (123+(C*2)) : (B+(123*2))\n"},
-	{in: "V = (A ? 123 : B) + 1", so: "\nV = ((A ? 123 : B)+1)\n"},
-	{in: "VAR = \"Sample ${A[1]} text\"", so: "\nVAR = \"Sample ${A[1]} text\"\n"},
-	{in: "VAR = sizeof A", so: "\nVAR = sizeof A\n"},
-	{in: "VAR = 123", so: "\nVAR = 123\n"},
-	{in: "VAR = '12a53'", so: "\nVAR = \"12a53\"\n"},
-	{in: "VAR = {1:123, V:VAR, V1:'12a'}", so: "\nVAR = {1: 123, V: VAR, V1: \"12a\"}\n"},
-	{in: "VAR = [1, 2, 'a']", so: "\nVAR = [1, 2, \"a\"]\n"},
-	{in: "VAR = [1, 2, \n'a']", so: "\nVAR = [1, 2, \"a\"]\n"},
-	{in: "VAR = [[1, 2, 'a'],\n[1, 'b'],\n]", so: "\nVAR = [[1, 2, \"a\"], [1, \"b\"]]\n"},
-	{
-		in: `
-VAR = 123
-target:
-    @GET -h $HEADER -k $V[1] www.example.com > $VAR test/sample.txt
-	@ECHO $VAR >> sample.txt
-`,
-		so: `
-VAR = 123
-target:
-    @GET "-h" HEADER "-k" V[1] "www.example.com" > $VAR "test/sample.txt"
-    @ECHO VAR >> "sample.txt"
-`,
+var simpleCases = []*parserInputCase{
+	/* case 1 */ {in: "VAR = 123", out: "VAR = 123\n"},
+	/* case 2 */ {in: "VAR = 123 * 383", out: "VAR = 123 * 383\n"},
+	/* case 3 */ {in: "VAR = 123 > 383 > a", out: "VAR = (123 > 383) && (383 > a)\n"},
+	/* case 4 */ {in: "VAR = 'text'", out: "VAR = 'text'\n"},
+	/* case 5 */ {in: "VAR[1] = 32", out: "VAR[1] = 32\n"},
+	/* case 6 */ {in: "VAR['key'] = 34 * 73 / a2", out: "VAR['key'] = (34 * 73) / a2\n"},
+	/* case 7 */ {in: "VAR = 34 * a1[1] / a2", out: "VAR = (34 * a1[1]) / a2\n"},
+	/* case 8 */ {in: "if a == 1 { A += 2 }", out: "if a == 1 {\nA += 2\n}\n"},
+	/* case 9 */ {in: "if a == 1 { A += 2 } else { A = 3 }", out: "if a == 1 {\nA += 2\n} else {\nA = 3\n}\n"},
+	/* case 10 */ {in: "if a == 1 { A += 2 } else if cc { A = 3 }", out: "if a == 1 {\nA += 2\n} else if cc {\nA = 3\n}\n"},
+	/* case 11 */ {in: "for i in [1..4] { A += i }", out: "for i in [1..4] {\nA += i\n}\n"},
+	/* case 12 */ {in: "for i in ]1..4] { A += i }", out: "for i in (1..4] {\nA += i\n}\n"},
+	/* case 13 */ {in: "for i in (1..4[ { A += i }", out: "for i in (1..4) {\nA += i\n}\n"},
+	/* case 14 */ {in: "for i in (1..4) { A += i }", out: "for i in (1..4) {\nA += i\n}\n"},
+	/* case 15 */ {in: "for i,v in [1,2,3] { A += i }", out: "for i, v in [1, 2, 3] {\nA += i\n}\n"},
+	/* case 16 */ {in: "for key, val in {a:b, 1:'text'} { A += i }", out: "for key, val in {a: b, 1: 'text'} {\nA += i\n}\n"},
+	/* case 17 */ {in: "for i in [1..4] { if a > 2 { break } else { continue } }", out: "for i in [1..4] {\nif a > 2 {\nbreak\n} else {\ncontinue\n}\n}\n"},
+	/* case 18 */ {in: "for i in [1..4] { if a > 2 { break:label }\n }", out: "for i in [1..4] {\nif a > 2 {\nbreak:label\n}\n}\n"},
+	/* case 19 */ {in: "for:label i in [1..4] { A += i }", out: "for:label i in [1..4] {\nA += i\n}\n"},
+	/* case 20 */ {in: "for { A += i }", out: "for {\nA += i\n}\n"},
+	/* case 21 */ {in: "for:label { A += i }", out: "for:label {\nA += i\n}\n"},
+	/* case 22 */ {in: "target:", out: "target:\n"},
+	/* case 23 */ {in: "exit a & 1 & u", out: "exit (a & 1) & u\n"},
+	/* case 24 */ {in: "exit A", out: "exit A\n"},
+	/* case 25 */ {in: "exit A[1]", out: "exit A[1]\n"},
+	/* case 26 */ {in: "@cmd test 'text' 123", out: "@cmd test 'text' 123\n"},
+	/* case 27 */ {in: "@cmd test 'text' \\\n 123 sample \\\n 4.2 '932'", out: "@cmd test 'text' 123 sample 4.2 '932'\n"},
+	/* case 28 */ {in: "@cmd test 'text' \\\n 123 sample \\\n 4.2 '932'\nA += 2", out: "@cmd test 'text' 123 sample 4.2 '932'\nA += 2\n"},
+	/* case 29 */ {in: "if a { @cmd a b c 1\n }", out: "if a {\n@cmd a b c 1\n}\n"},
+	/* case 30 */ {in: "A = B(i, v) => i + 1 * v", out: "A = B(i, v) => i + (1 * v)\n"},
+	/* case 31 */ {in: "A = 'string interpolation $a text also allow an ${89 + 3} expression'", out: "A = 'string interpolation ${a} text also allow an ${89 + 3} expression'\n"},
+	/* case 32 */ {in: "A = '$a is a way to format \\${a * 2} value ${a * 2} output'", out: "A = '${a} is a way to format \\${a * 2} value ${a * 2} output'\n"},
+	/* case 33 */ {in: "@print '-e' '-n' a >> file", out: "@print '-e' '-n' a >> file\n"},
+	/* case 34 */ {in: "A = @print '-e' '-n' a >> file", out: "A = @print '-e' '-n' a >> file\n"},
+	/* case 35 */ {in: "if a is integer | float {}", out: "if a is integer | float {\n}\n"},
+	/* case 36 */ {in: "a++", out: "a++\n"},
+	/* case 37 */ {in: "if b { a++\n }", out: "if b {\na++\n}\n"},
+	/* case 38 */ {in: "A = B ?? 12", out: "A = B ?? 12\n"},
+	/* case 39 */ {in: "A = B ? 12 : C", out: "A = B ? 12 : C\n"},
+	/* case 40 */ {in: "if a { A[i] = 2 * 3 }", out: "if a {\nA[i] = 2 * 3\n}\n"},
+	/* case 41 */ {
+		in:  "#pub 'run' file '-o' \"${COVERAGE}/${base}.lcov.info\" \\\n \"--packages=.packages\" \"--report-on=lib\"",
+		out: "#pub 'run' file '-o' \"${COVERAGE}/${base}.lcov.info\" \"--packages=.packages\" \"--report-on=lib\"\n",
 	},
-	{
-		in: `
-target:
-    VAR = @GET www.example.com
-	VAR = #ls
-	for i in 1..100 {
-		X = 123
-		if K {
-			@FUNC "arg1" "arg2"
+}
+
+func TestParseSimple(t *testing.T) {
+	for i, tc := range simpleCases {
+		t.Logf("TestParseSimple case #%d", i+1)
+		p := NewParser()
+		c, err := p.ParseSrc(token.NewFile("sample", len(tc.in)), []byte(tc.in))
+		if tc.out == "" {
+			assert.Error(t, err)
+		} else {
+			require.NoError(t, err)
+			assert.Equal(t, tc.out, c.String())
 		}
 	}
-`,
-		so: `
-target:
-    VAR = @GET "www.example.com"
-    VAR = #ls
-    for i in 1..100 {
-        X = 123
-        if K {
-            @FUNC "arg1" "arg2"
-        }
-    }
-`,
-	},
 }
 
-func TestStatementParser(t *testing.T) {
-	p := NewParser().(*implParser)
-	files := token.NewFiles()
-	for i, vio := range stmtTestCase {
-		t.Logf("TestStatementParser case #%d", i+1)
-		src := []byte(vio.in)
-		f, err := files.AddFileInMemory("test/Cookfile", src, len(src))
-		assert.NoError(t, err)
-		p.s = NewScanner(f, src, p.errorHandler)
-		cp := ast.NewCookProgram()
-		p.parseProgram(f, cp)
-		assert.Equal(t, vio.so[1:], cp.String(0))
+var unaryTestCases = []*parserInputCase{
+	/* case 1 */ {in: "!a", out: "!a"},
+	/* case 2 */ {in: "+a", out: "+a"},
+	/* case 3 */ {in: "-a", out: "-a"},
+	/* case 4 */ {in: "^a", out: "^a"},
+	/* case 5 */ {in: "$1", out: "1"},
+	/* case 6 */ {in: "$a", out: ""},
+	/* case 7 */ {in: "sizeof a", out: "sizeof a"},
+	/* case 8 */ {in: "integer(1.2)", out: "integer(1.2)"},
+	/* case 9 */ {in: "float(12)", out: "float(12)"},
+	/* case 10 */ {in: "boolean('true')", out: "boolean('true')"},
+	/* case 11 */ {in: "string(12)", out: "string(12)"},
+}
+
+func TestParseUnary(t *testing.T) {
+	for i, tc := range unaryTestCases {
+		t.Logf("TestParseUnary case #%d", i+1)
+		p := createTestParser(t, tc.in)
+		p.next()
+		x := p.parseUnaryExpr()
+		if tc.out == "" {
+			assert.Nil(t, x)
+		} else {
+			require.NotNil(t, x)
+			assert.Equal(t, tc.out, x.String())
+		}
 	}
+}
+
+var binaryTestCases = []*parserInputCase{
+	/* case 1 */ {in: "a * b + 1", out: "(a * b) + 1"},
+	/* case 2 */ {in: "a + b * 1", out: "a + (b * 1)"},
+	/* case 3 */ {in: "a / b * 1", out: "(a / b) * 1"},
+	/* case 4 */ {in: "(a / b) * 1", out: "(a / b) * 1"},
+	/* case 5 */ {in: "(a / b) > 1", out: "(a / b) > 1"},
+	/* case 6 */ {in: "a && b && c", out: "(a && b) && c"},
+	/* case 7 */ {in: "1 | 2 > 2 * a", out: "(1 | 2) > (2 * a)"},
+	/* case 8 */ {in: "2 & 3 | 3 > 3 * h", out: "((2 & 3) | 3) > (3 * h)"},
+	/* case 9 */ {in: "a & 2 && 3 | b > 98", out: "(a & 2) && ((3 | b) > 98)"},
+	/* case 10 */ {in: "a && b > c", out: "a && (b > c)"},
+	/* case 11 */ {in: "12 > b > c > 3", out: "((12 > b) && (b > c)) && (c > 3)"},
+	/* case 12 */ {in: "12 > b > c + 3", out: "(12 > b) && (b > (c + 3))"},
+	/* case 13 */ {in: "1 + a > b + 4 != c + 3", out: "((1 + a) > (b + 4)) && ((b + 4) != (c + 3))"},
+	/* case 14 */ {in: "a | b << 2 * u & 1", out: "a | (((b << 2) * u) & 1)"},
+}
+
+func TestParseBinary(t *testing.T) {
+	for i, tc := range binaryTestCases {
+		t.Logf("TestParseBinary case #%d", i+1)
+		p := createTestParser(t, tc.in)
+		x := p.parseBinaryExpr(false, token.LowestPrec+1)
+		require.NotNil(t, x)
+		assert.Equal(t, tc.out, x.String())
+	}
+}
+
+const src = `
+A = 12
+B = A * 2
+
+initialize:
+   A += 8.2
+
+finalize:
+   @print 123
+
+all: *
+
+target:
+   if A < 20 {
+      for i in [A..39] {
+         @print i B
+      }
+   } else {
+      @print "nothing to execute"
+   }
+`
+
+func TestParseCode(t *testing.T) {
+	p := NewParser()
+	c, err := p.ParseSrc(token.NewFile("sample", len(src)), []byte(src))
+	require.NoError(t, err)
+	cb := ast.NewCodeBuilder("   ", true, 120)
+	c.Visit(cb)
+	assert.Equal(t, src[1:], cb.String())
 }

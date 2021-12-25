@@ -30,9 +30,12 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 	} else if len(opts.Targets) > 0 {
-		cook.ExecuteWithTarget(opts.Args, opts.Targets...)
+		err = cook.ExecuteWithTarget(opts.Args, opts.Targets...)
 	} else {
-		cook.Execute(opts.Args)
+		err = cook.Execute(opts.Args)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
 	}
 }
 

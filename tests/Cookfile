@@ -2,10 +2,10 @@ include "Cookfile.second"
 include "Cookfile.third"
 
 initialize:
-    @print initialized
+    @print 'initialized'
 
 finalize:
-    @print finalized
+    @print 'finalized'
 
 testVar:
     A = INPUT
@@ -17,22 +17,22 @@ testVar:
     G = F + E
     H = NO ?? 12
     I = H == 12 ? A : G
-    @print $A $B $C $D $E $F $G $H $I
+    @print A B C D E F G H I
 
 testIfElse:
     if COND {
         if sizeof INPUT > 0 {
             // save DATA into file OUTPUT
-            @print -e -n $DATA > ${OUTPUT}
+            @print '-e' '-n' DATA > OUTPUT
         } else {
             // print DATA into stdout
-            @print -n $DATA
+            @print '-n' DATA
         }
     } else {
         if sizeof INPUT < 6 {
-            @print -s -n $DATA
+            @print '-s' '-n' DATA
         } else {
-            @print -s -e -n $DATA >> $OUTPUT
+            @print '-s' '-e' '-n' DATA >> OUTPUT
         }
     }
 
@@ -47,12 +47,12 @@ testFor:
                 }
             }
         }
-        @print $CASE $INPUT
+        @print CASE INPUT
     } else if CASE == 2 { // nested multiple loop
         val = 0
-        for@out1 i in 1..200 {
+        for:out1 i in 1..200 {
             if i % 2 == 0 {
-                for@middle1 iv, v in LIST1 {
+                for:middle1 iv, v in LIST1 {
                     if integer(v) % 3 == 1 {
                         i += iv
                         val += integer(v)
@@ -65,10 +65,10 @@ testFor:
                                 // break current loop and middle
                                 // and continue execute immediately at out1 loop
                                 val += 9
-                                continue @out1
+                                continue:out1
                             } else {
                                 val += 10
-                                continue @middle1
+                                continue:middle1
                             }
                         }
                     }
@@ -84,13 +84,13 @@ testFor:
                 }
             }
         }
-        @print $val
+        @print val
     } else if CASE == 3 {
         for i, v in LIST {
-            @print $i $v
+            @print i v
         }
     } else {
         for k, v in MAP {
-            @print $k $v
+            @print k v
         }
     }

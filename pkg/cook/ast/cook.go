@@ -1,588 +1,261 @@
 package ast
 
 import (
-	"bytes"
+	"errors"
 	"fmt"
-	"io"
 	"os"
 	"reflect"
-	"strings"
+	"sort"
+	"strconv"
 
 	"github.com/cozees/cook/pkg/cook/token"
+	"github.com/cozees/cook/pkg/runtime/args"
 )
 
-//
-type CookProgram interface {
-	BlockStatement
-	AddTarget(name string) (Target, error)
-	Execute(args map[string]interface{})
-	ExecuteWithTarget(args map[string]interface{}, names ...string)
+const (
+	TargetInitialize = "initialize"
+	TargetFinalize   = "finalize"
+	TargetAll        = "all"
+)
+
+type Cook interface {
+	Code
+	Block() *BlockStatement
+	AddFunction(fn *Function)
+	AddTarget(base *Base, name string) (*Target, error)
+	Execute(pargs map[string]interface{}) error
+	ExecuteWithTarget(pargs map[string]interface{}, names ...string) error
+	Scope() Scope
 }
 
-type implCookProgram struct {
-	*implBlock
-	*implContext
+type cook struct {
+	ctx *xContext
+
+	targets       map[string]int
+	targetIndexes []*Target
+	fns           map[string]*Function
+
+	initializeTargets Targets
+	finalizeTargets   Targets
+	targetAll         *Target
+	Insts             *BlockStatement
 }
 
-func NewCookProgram() CookProgram {
-	return &implCookProgram{
-		implBlock: &implBlock{},
-		implContext: &implContext{
-			gvar:          make(map[string]interface{}),
-			targetsByName: make(map[string]int),
-			restrictVar:   make(map[string]reflect.Kind),
-		},
+func NewCook() Cook {
+	return &cook{
+		targets: make(map[string]int),
+		fns:     make(map[string]*Function),
+		Insts:   &BlockStatement{root: true, plain: true},
 	}
 }
 
-func (icp *implCookProgram) AddTarget(name string) (Target, error) {
-	if _, ok := icp.targetsByName[name]; !ok {
-		target := NewTarget(name)
-		icp.targetsByName[name] = len(icp.targets)
-		icp.targets = append(icp.targets, target)
-		return target, nil
-	}
-	return nil, fmt.Errorf("target %s is already existed", name)
-}
+func (c *cook) Block() *BlockStatement { return c.Insts }
+func (c *cook) Scope() Scope           { return c.ctx.scope }
 
-func (icp *implCookProgram) Execute(args map[string]interface{}) {
-	if icp.getTarget("all") == nil {
-		icp.onError(fmt.Errorf("missing target or all target is not defined"))
-		return
-	}
-	icp.ExecuteWithTarget(args, "all")
-}
-
-func (icp *implCookProgram) ExecuteWithTarget(args map[string]interface{}, names ...string) {
-	// add argument to global variable with suffix g
-	for name, value := range args {
-		icp.gvar[name] = value
-	}
-	// execute any instruction before execute target
-	// this instruction is defined before any target
-	if icp.evaluate(icp.implContext); icp.hasCanceled() {
-		return
-	}
-	// execute initialize target if defined
-	if tg := icp.getTarget("initialize"); tg != nil {
-		tg.run(icp.implContext, nil)
-	}
-	// execute finalize target if defined
-	if tg := icp.getTarget("finalize"); tg != nil {
-		defer func() {
-			recover()
-			tg.run(icp.implContext, nil)
-		}()
-	}
-	// execute target by name
-	for _, tgName := range names {
-		if tgName == "initialize" || tgName == "finalize" {
-			continue
+func (c *cook) AddTarget(base *Base, name string) (*Target, error) {
+	switch name {
+	case TargetInitialize:
+		if err := c.initializeTargets.notExisted(base.File.Name()); err != nil {
+			return nil, err
 		}
-		if tg := icp.getTarget(tgName); tg != nil {
-			if tg.run(icp.implContext, nil); icp.hasCanceled() {
-				return
-			}
-			if tgName == "all" {
-				return
-			}
+		t := &Target{Base: base, name: name, Insts: &BlockStatement{Base: base}}
+		c.initializeTargets = append(c.initializeTargets, t)
+		return t, nil
+	case TargetFinalize:
+		if err := c.finalizeTargets.notExisted(base.File.Name()); err != nil {
+			return nil, err
 		}
-	}
-}
-
-func (icp *implCookProgram) String(indent int) string {
-	buffer := bytes.NewBufferString("")
-	for _, ins := range icp.statements {
-		buffer.WriteString(ins.String(indent))
-	}
-	// 3 specials target first
-	if tg := icp.getTarget("initialize"); tg != nil {
-		buffer.WriteString(tg.String(indent))
-	}
-	if tg := icp.getTarget("finalize"); tg != nil {
-		buffer.WriteString(tg.String(indent))
-	}
-	if tg := icp.getTarget("all"); tg != nil {
-		buffer.WriteString(tg.String(indent))
-	}
-	// the rest last
-	for _, tg := range icp.getTargets() {
-		tgName := tg.Name()
-		if tgName == "initialize" || tgName == "finalize" || tgName == "all" {
-			continue
+		t := &Target{Base: base, name: name, Insts: &BlockStatement{Base: base}}
+		c.finalizeTargets = append(c.finalizeTargets, t)
+		return t, nil
+	case TargetAll:
+		if c.targetAll != nil {
+			return nil, fmt.Errorf("target has been declare at %s", c.targetAll.ErrPos())
 		}
-		buffer.WriteString(tg.String(indent))
+		c.targetAll = &Target{Base: base, name: name, Insts: &BlockStatement{Base: base}}
+		return c.targetAll, nil
 	}
-	return buffer.String()
-}
 
-//
-type BlockStatement interface {
-	CookStatement
-	AddStatement(ins CookStatement)
-}
-
-type implBlock struct {
-	statements []CookStatement
-}
-
-func (ib *implBlock) AddStatement(ins CookStatement) {
-	ib.statements = append(ib.statements, ins)
-}
-
-func (ib *implBlock) evaluate(ctx cookContext) {
-	for _, ins := range ib.statements {
-		if ctx.hasCanceled() {
-			return
-		}
-		ins.evaluate(ctx)
-		if fcc, ok := ctx.(*implForContext); ok {
-			if fcc.shouldBreak(fcc.currentLoop()) {
-				break
-			}
-			fcc.reset()
-		}
-	}
-}
-
-func (ib *implBlock) String(indent int) string {
-	buffer := bytes.NewBufferString(" {\n")
-	for _, ins := range ib.statements {
-		buffer.WriteString(ins.String(indent))
-	}
-	buffer.WriteString(strings.Repeat(" ", indent-4))
-	buffer.WriteRune('}')
-	return buffer.String()
-}
-
-//
-type CookStatement interface {
-	evaluate(ctx cookContext)
-	String(indent int) string
-}
-
-type exprWrapperStatement struct {
-	expr Expr
-}
-
-func NewWrapExprStatement(expr Expr) CookStatement { return &exprWrapperStatement{expr: expr} }
-
-func (cs *exprWrapperStatement) evaluate(ctx cookContext) { cs.expr.evaluate(ctx) }
-
-func (cs *exprWrapperStatement) String(indent int) string {
-	return strings.Repeat(" ", indent) + cs.expr.String() + "\n"
-}
-
-//
-type assingStatement struct {
-	variable string
-	op       token.Token
-	value    Expr
-}
-
-func NewAssignStatement(variable string, op token.Token, value Expr) CookStatement {
-	return &assingStatement{variable: variable, op: op, value: value}
-}
-
-func (ai *assingStatement) evaluate(ctx cookContext) {
-	if !ctx.hasCanceled() {
-		if ce, ok := ai.value.(*CallExpr); ok {
-			ce.OutputAsResult = true
-		}
-		i, ik := ai.value.evaluate(ctx)
-		switch {
-		case ai.op == token.ASSIGN:
-			if err := ctx.setVariable(ai.variable, i); err != nil {
-				ctx.onError(err)
-			}
-		default:
-			v, vk, _ := ctx.getVariable(ai.variable)
-			if v == nil {
-				ctx.onError(fmt.Errorf("variable %s has not been modified", ai.variable))
-			} else {
-				switch ai.op {
-				case token.ADD_ASSIGN:
-					sum, _ := addOperator(ctx, v, i, vk, ik)
-					if err := ctx.setVariable(ai.variable, sum); err != nil {
-						ctx.onError(err)
-					}
-				case token.SUB_ASSIGN, token.MUL_ASSIGN, token.QUO_ASSIGN, token.REM_ASSIGN:
-					r, _ := numOperator(ctx, ai.op-5, v, i, vk, ik)
-					if err := ctx.setVariable(ai.variable, r); err != nil {
-						ctx.onError(err)
-					}
-				default:
-					panic("illegal state parser. Parser should verify the permitted operator already")
-				}
-			}
-		}
-	}
-}
-
-func (ai *assingStatement) String(indent int) string {
-	buffer := bytes.NewBufferString(strings.Repeat(" ", indent))
-	buffer.WriteString(ai.variable)
-	buffer.WriteRune(' ')
-	buffer.WriteString(ai.op.String())
-	buffer.WriteRune(' ')
-	buffer.WriteString(ai.value.String())
-	buffer.WriteRune('\n')
-	return buffer.String()
-}
-
-type redirectToStatement struct {
-	Files    []Expr
-	Call     Expr
-	IsAppend bool
-}
-
-func NewRedirectToStatement(isAppend bool, call Expr, files []Expr) CookStatement {
-	return &redirectToStatement{Files: files, Call: call, IsAppend: isAppend}
-}
-
-func (ats *redirectToStatement) evaluate(ctx cookContext) {
-	ats.Call.(*CallExpr).OutputAsResult = true
-	v, vk := ats.Call.evaluate(ctx)
-	if vk != reflect.Invalid {
-		if r := convertToReadCloser(ctx, v, vk); r != nil {
-			defer r.Close()
-			var writers []io.Writer
-			addWriter := func(fp interface{}, k reflect.Kind) io.WriteCloser {
-				if k != reflect.String {
-					ctx.onError(fmt.Errorf("value %v type %s is not a file path", v, vk))
-					return nil
-				} else {
-					fpath := fp.(string)
-					flag := os.O_CREATE | os.O_WRONLY
-					if ats.IsAppend {
-						flag |= os.O_APPEND
-					} else {
-						flag |= os.O_TRUNC
-					}
-					f, err := os.OpenFile(fpath, flag, 0700)
-					if err != nil {
-						ctx.onError(err)
-						return nil
-					}
-					return f
-				}
-			}
-			// create writer
-			for _, f := range ats.Files {
-				fp, k := f.evaluate(ctx)
-				if k == reflect.Array {
-					for _, ifv := range fp.([]interface{}) {
-						w := addWriter(ifv, reflect.ValueOf(ifv).Kind())
-						if w == nil {
-							return
-						}
-						defer w.Close()
-						writers = append(writers, w)
-					}
-				} else if w := addWriter(fp, k); w == nil {
-					return
-				} else {
-					defer w.Close()
-					writers = append(writers, w)
-				}
-			}
-			//
-			if _, err := io.Copy(io.MultiWriter(writers...), r); err != nil {
-				ctx.onError(err)
-			}
-		}
+	if ti, ok := c.targets[name]; !ok {
+		t := &Target{Base: base, name: name, Insts: &BlockStatement{Base: base}}
+		c.targetIndexes = append(c.targetIndexes, t)
+		c.targets[name] = len(c.targetIndexes) - 1
+		return t, nil
 	} else {
-		fmt.Println("Warning: \"AssignTo\" is used on a function that might not return any value.")
+		pos := c.targetIndexes[ti].Position()
+		return nil, fmt.Errorf("target %s already exist, previously define at %d:%d", name, pos.Line, pos.Column)
 	}
+
 }
 
-func (ats *redirectToStatement) String(indent int) string {
-	buffer := bytes.NewBufferString(strings.Repeat(" ", indent))
-	buffer.WriteString(ats.Call.String())
-	if ats.IsAppend {
-		buffer.WriteString(" >> ")
+func (c *cook) AddFunction(fn *Function) { c.fns[fn.Name] = fn }
+
+func (c *cook) Execute(pargs map[string]interface{}) error {
+	if c.targetAll == nil {
+		return errors.New("default target all is not defined")
+	}
+	return c.ExecuteWithTarget(pargs, TargetAll)
+}
+
+func (c *cook) ExecuteWithTarget(pargs map[string]interface{}, names ...string) (err error) {
+	c.ctx = c.renewContext()
+	for name, v := range pargs {
+		c.ctx.scope.SetVariable(name, v, reflect.ValueOf(v).Kind(), nil)
+	}
+	// execute outter statement
+	if c.Insts != nil {
+		if err = c.Insts.Evaluate(c.ctx); err != nil {
+			return err
+		}
+	}
+	// execute initialize
+	for _, init := range c.initializeTargets {
+		// initialize target can set variable to globally thus no need to create scope for it
+		if err := init.Execute(c.ctx, nil); err != nil {
+			return err
+		}
+	}
+	// defer for finalize
+	defer func() {
+		for _, final := range c.finalizeTargets {
+			if ferr := final.Execute(c.ctx, nil); ferr != nil {
+				// igore the error from finalize display warning instead
+				fmt.Fprintf(os.Stderr, "Error while executing finalize target %s: %s\n", final.ErrPos(), ferr)
+			}
+		}
+	}()
+
+	// if all target is need and using syntax "all: *" then we execute every target in the order
+	// of its declaration
+	if len(names) == 1 && names[0] == TargetAll {
+		c.ctx.EnterBlock(false, "")
+		if c.targetAll == nil {
+			return errors.New("target all is not defined in any Cookfile")
+		}
+		if c.targetAll.all {
+			for _, t := range c.targetIndexes {
+				c.ctx.EnterBlock(false, "")
+				if err = t.Execute(c.ctx, nil); err != nil {
+					return err
+				}
+				c.ctx.ExitBlock(-1)
+			}
+		} else if err = c.targetAll.Execute(c.ctx, nil); err != nil {
+			return err
+		}
+		c.ctx.ExitBlock(-1)
 	} else {
-		buffer.WriteString(" > ")
-	}
-	for _, f := range ats.Files {
-		if _, ok := f.(*Ident); ok {
-			buffer.WriteRune('$')
-		}
-		buffer.WriteString(f.String())
-		buffer.WriteRune(' ')
-	}
-	buffer.Truncate(buffer.Len() - 1)
-	buffer.WriteRune('\n')
-	return buffer.String()
-}
-
-//
-type ForStatement struct {
-	*implBlock
-	I1    Expr // index or key
-	I2    Expr // value of array index or map
-	Range []Expr
-	Opr   Expr
-	Label string
-}
-
-func NewForStatement(label string) BlockStatement {
-	return &ForStatement{
-		implBlock: &implBlock{},
-		Label:     label,
-	}
-}
-
-func NewForRangeStatement(label string, i1 Expr, range_ []Expr) BlockStatement {
-	return &ForStatement{
-		implBlock: &implBlock{},
-		I1:        i1,
-		Range:     range_,
-		Label:     label,
-	}
-}
-
-func NewForLMStatement(label string, i1, i2 Expr, opr Expr) BlockStatement {
-	return &ForStatement{
-		implBlock: &implBlock{},
-		I1:        i1,
-		I2:        i2,
-		Opr:       opr,
-		Label:     label,
-	}
-}
-
-func (fs *ForStatement) blockEvaluate(index int, ctx forCookContext) {
-	for _, ins := range fs.statements {
-		if ctx.hasCanceled() {
-			return
-		}
-		ins.evaluate(ctx)
-		if ctx.shouldBreak(index) {
-			return
-		}
-		ctx.reset()
-	}
-}
-
-func (fs *ForStatement) evaluate(ctx cookContext) {
-	fcc, err := isTargetContext(ctx)
-	if err != nil {
-		ctx.onError(fmt.Errorf("for loop is %w", err))
-		return
-	}
-	// register loop in the context, usually use for break, if label is provided,
-	// break or continue can be specify label as addition
-	forInd := fcc.register(fs.Label)
-	defer fcc.unregister(forInd)
-	// add local scope for variable available in for index or index/value or key/value
-	localCtx := ctx.addScope()
-	defer ctx.popScope()
-	// Opr is array or map
-	eval := func(ctx forCookContext) bool {
-		fs.blockEvaluate(forInd, ctx)
-		return ctx.shouldBreak(forInd)
-	}
-	if fs.Opr != nil {
-		i1 := fs.I1.(*Ident).Name
-		i2 := ""
-		if fs.I2 != nil {
-			i2 = fs.I2.(*Ident).Name
-		}
-		v, vk := fs.Opr.evaluate(ctx)
-		switch vk {
-		case reflect.Array, reflect.Slice:
-			fcc.enterLoop(forInd)
-			defer fcc.exitLoop(forInd)
-			rv := reflect.ValueOf(v)
-			for i := 0; i < rv.Len(); i++ {
-				localCtx[i1] = int64(i)
-				if i2 != "" {
-					localCtx[i2] = rv.Index(i).Interface()
-				}
-				if eval(fcc) {
-					break
-				}
-				fcc.reset()
+		// each target must execute with it's own scope
+		for _, name := range names {
+			if name == TargetAll {
+				fmt.Println("warning: target all was include among other, it won't be executed.")
+				continue
 			}
-		case reflect.Map:
-			fcc.enterLoop(forInd)
-			defer fcc.exitLoop(forInd)
-			rv := reflect.ValueOf(v)
-			for _, k := range rv.MapKeys() {
-				localCtx[i1] = k
-				if i2 != "" {
-					localCtx[i2] = rv.MapIndex(k).Interface()
-				}
-				if eval(fcc) {
-					break
-				}
-				fcc.reset()
+			c.ctx.EnterBlock(false, "")
+			if err = c.ctx.GetTarget(name).Execute(c.ctx, nil); err != nil {
+				return err
 			}
-		default:
-			ctx.onError(fmt.Errorf("cannot loop value %v only map or list is allowed", v))
+			c.ctx.ExitBlock(-1)
 		}
-	} else if fs.Range != nil { // indexing
-		l, lk := fs.Range[0].evaluate(ctx)
-		g, gk := fs.Range[1].evaluate(ctx)
-		if lk != reflect.Int64 || gk != reflect.Int64 {
-			ctx.onError(fmt.Errorf("unsupport range value %v..%v, must be integer", l, g))
+	}
+	return nil
+}
+
+func (c *cook) renewContext() *xContext {
+	return &xContext{
+		scope:      &xScope{vars: make(map[string]*ivar)},
+		cook:       c,
+		continueAt: -1,
+		breakAt:    -1,
+	}
+}
+
+type Targets []*Target
+
+func (t Targets) Len() int           { return len(t) }
+func (t Targets) Less(i, j int) bool { return t[i].File.Name() < t[j].File.Name() }
+func (t Targets) Swap(i, j int)      { t[i], t[j] = t[j], t[i] }
+func (t Targets) notExisted(fname string) error {
+	if t != nil {
+		i := sort.Search(len(t), func(i int) bool {
+			return t[i].File.Name() >= fname
+		})
+		if i < len(t) && t[i].File.Name() == fname {
+			pos := t[i].Position()
+			return fmt.Errorf("defined %s target, previously exit at %d:%d", TargetInitialize, pos.Line, pos.Column)
 		}
-		i := fs.I1.(*Ident).Name
-		i1, i2 := l.(int64), g.(int64)
-		ctx.restrictVariable(i, reflect.Int64)
-		defer ctx.restrictVariable(i, reflect.Invalid)
-		fnb := func(ind int64) (int64, bool) {
-			localCtx[i] = ind
-			if eval(fcc) {
-				return ind, true
-			}
-			fcc.reset()
-			if localCtx[i] != ind {
-				if ii, ok := localCtx[i].(int64); ok {
-					return ii, false
-				} else {
-					ctx.position(fs.I1.(*Ident).baseExpr)
-					ctx.onError(fmt.Errorf("modify index variable \"%s\" must maintain it type integer", fs.I1.String()))
-					return 0, true
-				}
-			}
-			return ind, false
-		}
-		notOk := false
-		fcc.enterLoop(forInd)
-		defer fcc.exitLoop(forInd)
-		if i1 > i2 {
-			for ind := i1; ind >= i2; ind-- {
-				if ind, notOk = fnb(ind); notOk {
-					break
-				}
-			}
+	}
+	return nil
+}
+
+type Target struct {
+	*Base
+	all   bool
+	Insts *BlockStatement
+	name  string
+}
+
+func (t *Target) SetCallAll() {
+	if t.name != TargetAll {
+		panic("cook internal error: set call all on a none all target")
+	}
+	t.all = true
+}
+
+func (t *Target) Execute(ctx Context, args []*args.FunctionArg) error {
+	scope, _ := ctx.EnterBlock(false, "")
+	defer ctx.ExitBlock(-1)
+	for i, fa := range args {
+		scope.SetVariable(strconv.Itoa(i+1), fa.Val, fa.Kind, nil)
+	}
+	scope.SetVariable("0", int64(len(args)), reflect.Int64, nil)
+	return t.Insts.Evaluate(ctx)
+}
+
+func (t *Target) Vist(cb CodeBuilder) {
+	cb.WriteString(t.name)
+	cb.WriteString(":\n")
+	t.Insts.Visit(cb)
+}
+
+// a callback function to provide caller to set value for each argument of the function
+type argumentSetter func(int) (interface{}, reflect.Kind, error)
+
+type Function struct {
+	Insts  *BlockStatement
+	Name   string
+	Lambda token.Token
+	X      Node
+	Args   []*Ident
+}
+
+func (fn *Function) Execute(ctx Context, pargs []Node) (v interface{}, kind reflect.Kind, err error) {
+	return fn.internalExecute(ctx, len(pargs), func(i int) (interface{}, reflect.Kind, error) {
+		return pargs[i].Evaluate(ctx)
+	})
+}
+
+func (fn *Function) internalExecute(ctx Context, numArgs int, farg argumentSetter) (v interface{}, kind reflect.Kind, err error) {
+	switch {
+	case numArgs > len(fn.Args):
+		return nil, 0, fmt.Errorf("too many argument defined %d, given %d", len(fn.Args), numArgs)
+	case numArgs < len(fn.Args):
+		return nil, 0, fmt.Errorf("not enought argument defined %d, given %d", len(fn.Args), numArgs)
+	}
+
+	scope, _ := ctx.EnterBlock(false, "")
+	defer ctx.ExitBlock(-1)
+	for i := 0; i < numArgs; i++ {
+		if v, k, err := farg(i); err != nil {
+			return nil, 0, err
 		} else {
-			for ind := i1; ind <= i2; ind++ {
-				if ind, notOk = fnb(ind); notOk {
-					break
-				}
-			}
-		}
-	} else { // loop until break or continue target specified
-		fcc.enterLoop(forInd)
-		defer fcc.exitLoop(forInd)
-		for !eval(fcc) {
+			scope.SetVariable(fn.Args[i].Name, v, k, nil)
 		}
 	}
-}
-
-func (fs *ForStatement) String(indent int) string {
-	buffer := bytes.NewBufferString(strings.Repeat(" ", indent))
-	buffer.WriteString("for")
-	if fs.Label != "" {
-		buffer.WriteRune('@')
-		buffer.WriteString(fs.Label)
+	if fn.Lambda == token.LAMBDA {
+		return fn.X.Evaluate(ctx)
+	} else if err = fn.Insts.Evaluate(ctx); err == nil {
+		v, kind = ctx.GetReturnValue()
 	}
-	buffer.WriteRune(' ')
-	buffer.WriteString(fs.I1.String())
-	if fs.I2 != nil {
-		buffer.WriteString(", ")
-		buffer.WriteString(fs.I2.String())
-	}
-	buffer.WriteString(" in ")
-	if len(fs.Range) == 2 {
-		buffer.WriteString(fs.Range[0].String())
-		buffer.WriteString("..")
-		buffer.WriteString(fs.Range[1].String())
-	} else {
-		buffer.WriteString(fs.Opr.String())
-	}
-	buffer.WriteString(fs.implBlock.String(indent + 4))
-	buffer.WriteRune('\n')
-	return buffer.String()
-}
-
-//
-type IfStatement struct {
-	*implBlock
-	Cond Expr
-	Else CookStatement
-}
-
-type ElseStatement struct {
-	*implBlock
-}
-
-func NewIfStatement(cond Expr) *IfStatement {
-	return &IfStatement{
-		implBlock: &implBlock{},
-		Cond:      cond,
-	}
-}
-
-func NewElseStatement() BlockStatement { return &ElseStatement{implBlock: &implBlock{}} }
-
-func (is *IfStatement) evaluate(ctx cookContext) {
-	v, vk := is.Cond.evaluate(ctx)
-	if vk != reflect.Bool {
-		ctx.onError(fmt.Errorf("is not a boolean expression"))
-	} else if v.(bool) {
-		is.implBlock.evaluate(ctx)
-	} else if is.Else != nil {
-		is.Else.evaluate(ctx)
-	}
-}
-
-func (is *IfStatement) String(indent int) string {
-	buffer := bytes.NewBufferString(strings.Repeat(" ", indent))
-	buffer.WriteString("if ")
-	buffer.WriteString(is.Cond.String())
-	buffer.WriteString(is.implBlock.String(indent + 4))
-	if is.Else != nil {
-		buffer.WriteString(" else ")
-		buffer.WriteString(is.Else.String(indent + 4))
-	}
-	buffer.WriteRune('\n')
-	return buffer.String()
-}
-
-//
-type bcLoopStatement struct {
-	Kind  token.Token
-	Label string
-}
-
-func NewBreakContinueStatement(kind token.Token, label string) CookStatement {
-	return &bcLoopStatement{
-		Kind:  kind,
-		Label: label,
-	}
-}
-
-func (bcls *bcLoopStatement) evaluate(ctx cookContext) {
-	fcc, err := isTargetContext(ctx)
-	if err != nil {
-		ctx.onError(fmt.Errorf("for loop is %w", err))
-		return
-	}
-	switch bcls.Kind {
-	case token.BREAK:
-		if err = fcc.breakWith(bcls.Label); err != nil {
-			ctx.onError(err)
-		}
-	case token.CONTINUE:
-		if err = fcc.continueWith(bcls.Label); err != nil {
-			ctx.onError(err)
-		}
-	default:
-		panic("illegal state parser, parser create this statement only with break or continue")
-	}
-}
-
-func (bcls *bcLoopStatement) String(indent int) string {
-	buffer := bytes.NewBufferString(strings.Repeat(" ", indent))
-	buffer.WriteString(bcls.Kind.String())
-	if bcls.Label != "" {
-		buffer.WriteRune(' ')
-		buffer.WriteString(bcls.Label)
-		buffer.WriteRune('\n')
-	}
-	return buffer.String()
+	return v, kind, err
 }

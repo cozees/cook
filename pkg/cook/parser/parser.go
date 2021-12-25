@@ -2,779 +2,478 @@ package parser
 
 import (
 	"fmt"
+	"io/ioutil"
+	"os"
 	"path/filepath"
-	"reflect"
-	"runtime"
 
 	"github.com/cozees/cook/pkg/cook/ast"
+	cookErrors "github.com/cozees/cook/pkg/cook/errors"
 	"github.com/cozees/cook/pkg/cook/token"
 )
 
-const maxError = 10
-
 type Parser interface {
-	Parse(file string) (ast.CookProgram, error)
+	Parse(file string) (ast.Cook, error)
+	ParseSrc(file *token.File, src []byte) (ast.Cook, error)
 }
 
-type implParser struct {
-	s        *Scanner // current scanner
-	errCount int      // number of error count
-	ignore   bool     // check all the syntax but not adding any instruction or target to the program
+func NewParser() Parser {
+	return &parser{parsed: make(map[string]*token.File), pending: make(map[string]*token.File)}
+}
 
-	simpleOperand bool
+type parser struct {
+	pending map[string]*token.File // Cookfile which is waiting for parsing
+	parsed  map[string]*token.File // Cookfile which already parsed
+
+	s     *scanner
+	tfile *token.File
+	block *ast.BlockStatement
+
+	cook ast.Cook
 
 	// current token
 	cOffs int
 	cTok  token.Token
 	cLit  string
-	cExpr ast.Expr
 
 	// ahead token by 1 step
 	nOffs int
 	nTok  token.Token
 	nLit  string
-	nExpr ast.Expr
+
+	errs *cookErrors.CookError
 }
 
-func NewParser() Parser { return &implParser{} }
+func (p *parser) curPos() token.Position { return p.tfile.Position(p.cOffs) }
 
-func (p *implParser) errorHandler(offset int, f *token.File, msg string) bool {
-	n, l, c := f.Position(offset)
-	fmt.Printf("%s:%d:%d %s\n", n, l, c, msg)
-	p.errCount++
-	p.toBeginStatement()
-	// false terminiate as soon as error occurred otherwise true
-	return p.errCount > maxError
+func (p *parser) errorHandler(pos token.Position, msg string, args ...interface{}) {
+	if p.errs == nil {
+		p.errs = &cookErrors.CookError{}
+	}
+	p.errs.StackError(fmt.Errorf(pos.String()+" "+msg, args...))
+	// when encounter error immedate ignore everything until new statement
+	for {
+		p.next()
+		switch p.cTok {
+		case token.IDENT:
+			if (token.ADD_ASSIGN <= p.nTok && p.nTok <= token.REM_ASSIGN) ||
+				(token.AND_ASSIGN <= p.nTok && p.nTok <= token.ASSIGN) || p.nTok == token.LBRACK {
+				// p.nTok == token.LBRACK, is false positive as it not guarantee to be the
+				// index assigned statement.
+				return
+			}
+		case token.FOR, token.IF, token.BREAK, token.CONTINUE, token.RETURN, token.EOF, token.COMMENT:
+			return
+		}
+	}
 }
 
-func (p *implParser) expect(require token.Token) (offs int) {
+func (p *parser) expect(require token.Token) (offs int) {
 	if p.cTok != require {
-		p.errorHandler(p.cOffs, p.s.file, fmt.Sprintf("expect %s but got %s", require, p.cTok))
+		p.errorHandler(p.curPos(), fmt.Sprintf("expect %s but got %s", require, p.cTok))
 		offs = -1
 	} else {
 		offs = p.cOffs
+		p.next()
 	}
-	p.next()
 	return
 }
 
-func (p *implParser) parseIncludeDirective(files token.Files, ms map[string]*Scanner, fname string) error {
-	// if file has been included
-	if files.IsExisted(fname) {
-		return nil
+func (p *parser) init(file *token.File, src []byte) (err error) {
+	p.tfile = file
+	if p.s, err = NewScannerSrc(file, src, p.errorHandler); err == nil {
+		p.s.skipLineFeed = true
+		p.cOffs, p.cTok, p.cLit = -1, 0, ""
+		p.nOffs, p.nTok, p.nLit = p.s.Scan()
 	}
-	// scan only include directive
-	f, err := files.AddFile(fname)
-	if err != nil {
-		return err
-	}
-	raw, err := f.ReadFile()
-	if err != nil {
-		return err
-	}
-	p.s = NewScanner(f, raw, p.errorHandler)
-	ms[f.Abs()] = p.s
-
-	for {
-		offs, tok, _, _ := p.s.Scan()
-		if tok == token.INCLUDE {
-			offs, tok, lit, _ := p.s.Scan()
-			if tok != token.STRING {
-				p.errorHandler(offs, p.s.file, "include token must be a string")
-			} else {
-				s := p.s
-				p.parseIncludeDirective(files, ms, filepath.Join(f.Dir(), lit))
-				p.s = s
-				offs, tok, _, _ = p.s.Scan()
-				if tok != token.LF {
-					n, l, c := p.s.file.Position(offs)
-					return fmt.Errorf("%s:%d:%d expect linefeed but go %s", n, l, c, tok)
-				}
-			}
-		} else {
-			// we already scan include directive therefore we don't need to scan it again.
-			p.s.reset(offs)
-			p.s = nil
-			return nil
-		}
-	}
+	return err
 }
 
-func (p *implParser) addMainFile(mainFile string) (token.Files, map[string]*Scanner, error) {
-	files := token.NewFiles()
-	ms := make(map[string]*Scanner)
-	err := p.parseIncludeDirective(files, ms, mainFile)
-	if err != nil {
-		return nil, nil, err
-	}
-	return files, ms, nil
-}
-
-//
-func (p *implParser) init() {
-	p.s.skipLineFeed = true
-	p.nOffs, p.nTok, p.nLit, p.nExpr = p.s.Scan()
-	p.ignore = false
-}
-
-func (p *implParser) next() {
-	p.cOffs, p.cTok, p.cLit, p.cExpr = p.nOffs, p.nTok, p.nLit, p.nExpr
+func (p *parser) next() {
+	p.cOffs, p.cTok, p.cLit = p.nOffs, p.nTok, p.nLit
 	if p.nTok != token.EOF {
-		p.nOffs, p.nTok, p.nLit, p.nExpr = p.s.Scan()
+		p.nOffs, p.nTok, p.nLit = p.s.Scan()
 	}
 }
 
-func (p *implParser) toBeginStatement() {
-	for {
-		switch p.cTok {
-		case token.EOF:
-			// reach the end of file
-			return
-		case token.AT, token.HASH:
-			if p.nTok == token.IDENT {
-				return
-			}
-		case token.IDENT:
-			if p.nTok == token.AT || p.nTok == token.COLON {
-				return
-			}
-		case token.IF, token.FOR, token.EXIT:
-			return
-		}
-		p.next()
-	}
-}
-
-func (p *implParser) Parse(file string) (ast.CookProgram, error) {
-	files, ss, err := p.addMainFile(file)
+func (p *parser) Parse(file string) (ast.Cook, error) {
+	stat, err := os.Stat(file)
 	if err != nil {
 		return nil, err
 	}
-	cook := ast.NewCookProgram()
-	totalErr := 0
-	for name, f := range files {
-		p.s = ss[name]
-		p.parseProgram(f, cook)
-		totalErr += p.errCount
-		// reset error count on each file
-		p.errCount = 0
+	tfile := token.NewFile(file, int(stat.Size()))
+	src, err := ioutil.ReadFile(file)
+	if err != nil {
+		return nil, err
 	}
-	if totalErr > 0 {
-		return nil, fmt.Errorf("parse encouter %d error(s)", totalErr)
-	}
-	return cook, nil
+	return p.ParseSrc(tfile, src)
 }
 
-//
-func (p *implParser) parseProgram(f *token.File, cp ast.CookProgram) {
-	var block ast.BlockStatement = cp
-	p.init()
-	p.next()
-	inTarget := false
-	for p.cTok != token.EOF {
-		switch {
-		case p.cTok == token.INCLUDE:
-			p.errorHandler(p.cOffs, f, "include directive must define at the top of the file.")
-		case p.cTok == token.IDENT:
-			lit := p.cLit
-			if p.nTok == token.COLON || p.nTok == token.AT {
-				p.next()
-				if block = p.tryParseTarget(lit, cp); block != nil || p.ignore {
-					inTarget = true
-					continue
-				}
-			} else if p.next(); p.tryParseAssignStatement(lit, block) {
-				continue
-			} else {
-				p.errorHandler(p.cOffs, f, fmt.Sprintf("invalid token %s", p.cTok))
-			}
-		case p.cTok == token.EXIT:
-			p.parseExitStatement(block)
-		case inTarget:
-			switch p.cTok {
-			case token.FOR:
-				p.parseForStatment(block)
-			case token.IF:
-				p.parseIfStatement(block)
-			case token.AT, token.HASH:
-				p.parseInvocationStatement(block)
-			case token.MUL:
-				t, ok := block.(ast.Target)
-				if ok && t.Name() == "all" {
-					p.next()
-					lit := p.cLit
-					if p.expect(token.IDENT) != -1 {
-						if block = p.tryParseTarget(lit, cp); block != nil || p.ignore {
-							inTarget = true
-							continue
-						} else {
-							p.errorHandler(p.cOffs, f, fmt.Sprintf("invalid token %s", p.cTok))
-						}
-					}
-				}
-			}
-		default:
-			// keep advancing if no match
-			p.toBeginStatement()
+func (p *parser) ParseSrc(file *token.File, src []byte) (ast.Cook, error) {
+	if err := p.init(file, src); err == nil {
+		p.cook = ast.NewCook()
+		p.block = p.cook.Block()
+		return p.parse()
+	} else {
+		return nil, err
+	}
+}
+
+func (p *parser) parse() (cook ast.Cook, err error) {
+	// scan include directive first
+nextFile:
+	for p.next(); p.cTok != token.EOF; {
+		if p.cTok == token.INCLUDE {
+			p.parseIncludeDirective()
+			continue
 		}
+		break
 	}
-}
-
-func (p *implParser) parseSimpleStatement(block ast.BlockStatement) bool {
-	for p.cTok != token.LF {
+	for p.cTok != token.EOF {
 		switch p.cTok {
 		case token.INCLUDE:
-			p.errorHandler(p.cOffs, p.s.file, "include directive must define at the top of the file")
-			return false
+			p.errorHandler(p.curPos(), "include directive must place at the very top of the file.")
 		case token.IDENT:
-			offs, lit := p.cOffs, p.cLit
-			if p.nTok == token.AT || p.nTok == token.COLON {
-				// target declaraton only target is follow by @ or :
-				return false
-			} else if p.next(); p.cTok == token.INC || p.cTok == token.DEC {
-				opOffs, op := p.cOffs, p.cTok
-				if p.next(); p.expect(token.LF) != -1 {
-					x := ast.NewIncDecExpr(opOffs, p.s.file, op, ast.NewIdentExpr(offs, p.s.file, lit))
-					block.AddStatement(ast.NewWrapExprStatement(x))
-					return true
-				} else {
-					return false
-				}
-			} else if p.tryParseAssignStatement(lit, block) {
-				return true
-			} else {
-				p.errorHandler(p.cOffs, p.s.file, fmt.Sprintf("invalid token %s", p.cTok))
-				return false
-			}
-		case token.EXIT:
-			p.parseExitStatement(block)
-			return true
+			p.parseIdentifier(true)
 		case token.FOR:
-			p.parseForStatment(block)
-			return true
+			p.parseForLoop(false)
 		case token.IF:
-			p.parseIfStatement(block)
-			return true
+			p.parseIf(false, nil)
 		case token.AT, token.HASH:
-			p.parseInvocationStatement(block)
-			return true
-		case token.CONTINUE, token.BREAK:
-			kind := p.cTok
-			p.next()
-			label := ""
-			if p.cTok == token.AT {
-				p.next()
-				label = p.cLit
-				if p.expect(token.IDENT) == -1 {
-					continue
-				}
-			}
-			if p.expect(token.LF) != -1 {
-				block.AddStatement(ast.NewBreakContinueStatement(kind, label))
-				return true
-			}
-		}
-	}
-	p.next()
-	return true
-}
-
-func (p *implParser) parseExitStatement(block ast.BlockStatement) {
-	p.next()
-	if p.cTok == token.INTEGER {
-		offs, lit := p.cOffs, p.cLit
-		p.next()
-		if p.expect(token.LF) != -1 && !p.ignore {
-			block.AddStatement(ast.NewWrapExprStatement(ast.NewExitExpr(offs, p.s.file, lit)))
-		}
-	} else {
-		p.errorHandler(p.cOffs, p.s.file, "exit expected integer code")
-	}
-}
-
-func (p *implParser) tryParseTarget(name string, cook ast.CookProgram) (t ast.BlockStatement) {
-	var err error
-	var ignore = false
-revisit:
-	switch p.cTok {
-	case token.AT:
-		p.next()
-		ignore = p.cLit != runtime.GOOS
-		p.expect(token.IDENT)
-		goto revisit
-	case token.COLON:
-		if !ignore {
-			if t, err = cook.AddTarget(name); err != nil {
-				p.errorHandler(p.cOffs, p.s.file, err.Error())
-			}
-		}
-	default:
-		ignore = false
-	}
-	p.next()
-	p.ignore = ignore
-	return
-}
-
-func (p *implParser) tryParseAssignStatement(varn string, block ast.BlockStatement) bool {
-	switch p.cTok {
-	case token.ASSIGN:
-		if p.nTok == token.AT || p.nTok == token.HASH {
-			op := p.cTok
-			p.next()
-			if _, _, expr := p.parseInvocationExpr(false); expr != nil {
-				block.AddStatement(ast.NewAssignStatement(varn, op, expr))
-			} else if !p.ignore {
-				return false
-			}
-			return true
-		}
-		fallthrough
-	case token.ADD_ASSIGN, token.SUB_ASSIGN, token.MUL_ASSIGN, token.QUO_ASSIGN, token.REM_ASSIGN:
-		op := p.cTok
-		if expr := p.parseBinaryExpr(token.LowestPrec + 1); expr != nil {
-			if !p.ignore {
-				block.AddStatement(ast.NewAssignStatement(varn, op, expr))
+			p.parseCallReference(false)
+		case token.EXIT:
+			offs := p.cOffs
+			if code := p.parseBinaryExpr(false, token.LowestPrec+1); code != nil {
+				p.block.Append(&ast.ExprWrapperStatement{
+					X: &ast.Exit{Base: &ast.Base{Offset: offs, File: p.tfile}, ExitCode: code},
+				})
 			}
 			p.expect(token.LF)
-			return true
-		} else if p.ignore {
-			return true
-		}
-	}
-	return false
-}
-
-func (p *implParser) parseInvocationStatement(block ast.BlockStatement) {
-	redirectTo, isAppend, x := p.parseInvocationExpr(true)
-	if !p.ignore {
-		if len(redirectTo) > 0 {
-			block.AddStatement(ast.NewRedirectToStatement(isAppend, x, redirectTo))
-		} else {
-			block.AddStatement(ast.NewWrapExprStatement(x))
-		}
-	}
-}
-
-func (p *implParser) parseInvocationExpr(canHasAssignTo bool) (redirectTo []ast.Expr, isAppend bool, x ast.Expr) {
-	offs := p.cOffs
-	kind := p.cTok
-	p.next()
-	if p.cTok != token.IDENT {
-		p.errorHandler(p.cOffs, p.s.file, "expect identifier")
-		return
-	}
-	name := p.cLit
-	readFromOffs := -1
-	redirectToOffs := -1
-	p.next()
-	var args []ast.Expr
-	if !p.ignore {
-		args = make([]ast.Expr, 0)
-		redirectTo = make([]ast.Expr, 0)
-	}
-	for p.cTok != token.LF {
-		switch p.cTok {
-		case token.STRING, token.IDENT:
-			if !p.ignore {
-				x := p.cExpr
-				if x == nil {
-					x = ast.NewBasicLiteral(p.cOffs, p.s.file, token.STRING, p.cLit)
-				}
-				if readFromOffs != -1 {
-					args = append(args, ast.NewReadFromExpr(readFromOffs, p.s.file, x))
-					readFromOffs = -1
-				} else if redirectToOffs != -1 {
-					redirectTo = append(redirectTo, x)
-					if p.nTok != token.LF && p.nTok != token.STRING && p.nTok != token.IDENT {
-						p.next()
-						p.errorHandler(p.cOffs, p.s.file, fmt.Sprintf("invalid token %s", p.cTok))
-						return nil, false, nil
-					}
-				} else {
-					args = append(args, x)
-				}
-			}
-		case token.APPEND_TO:
-			isAppend = true
-			redirectToOffs = p.cOffs
-		case token.ASSIGN_TO:
-			redirectToOffs = p.cOffs
-		case token.READ_FROM:
-			readFromOffs = p.cOffs
+		case token.COMMENT:
+			p.next()
+			// eat the comment for now.
+			// TODO: add comment to file which help when formatting the code
 		default:
-			p.errorHandler(p.cOffs, p.s.file, "calling target or function required string or identifier token")
-			return nil, false, nil
-		}
-		p.next()
-	}
-	if p.expect(token.LF) != -1 {
-		if !canHasAssignTo && len(redirectTo) > 0 {
-			p.errorHandler(offs, p.s.file, "assign to or redirect syntax is not allow here")
-		} else if !p.ignore {
-			return redirectTo, isAppend, ast.NewCallExpr(offs, p.s.file, name, kind, args)
+			p.errorHandler(p.curPos(), "invalid token %s", p.cTok)
 		}
 	}
-	return nil, false, nil
-}
 
-func (p *implParser) parseForStatment(block ast.BlockStatement) {
-	p.next()
-	label := ""
-	if p.cTok == token.AT {
-		// special case to reset track of token
-		p.s.prevTokens[0] = token.ILLEGAL
-		p.s.prevTokens[1] = token.ILLEGAL
-		p.next()
-		label = p.cLit
-		if p.expect(token.IDENT) == -1 {
-			return
-		}
-	}
-	offs, lit := p.cOffs, p.cLit
-	var ranges []ast.Expr
-	var fob ast.BlockStatement
-	switch p.cTok {
-	case token.IDENT:
-		p.next()
-		switch p.cTok {
-		case token.COMMA:
-			// for k, v on list or map
-			p.next()
-			vOffs, vLit := p.cOffs, p.cLit
-			if p.expect(token.IDENT) == -1 || p.expect(token.IN) == -1 {
-				return
+	// check if there more file pending to parse
+	if len(p.pending) > 0 {
+		p.parsed[p.tfile.Name()] = p.tfile
+		for k, v := range p.pending {
+			if src, err := ioutil.ReadFile(v.Name()); err != nil {
+				return nil, err
+			} else if err := p.init(v, src); err != nil {
+				return nil, err
 			}
-			var expr ast.Expr
-			switch p.cTok {
-			case token.LBRACE:
-				// literal map
-				expr = p.parseOperand()
-			case token.LBRACK:
-				// literal array
-				expr = p.parseOperand()
-			case token.IDENT:
-				expr = ast.NewIdentExpr(p.cOffs, p.s.file, p.cLit)
-				p.next()
-			}
-			if p.expect(token.LBRACE) != -1 {
-				i1 := ast.NewIdentExpr(offs, p.s.file, lit)
-				i2 := ast.NewIdentExpr(vOffs, p.s.file, vLit)
-				fob = ast.NewForLMStatement(label, i1, i2, expr)
-			}
-		case token.IN:
-			p.next()
-		readAgain:
-			if p.cTok == token.INTEGER {
-				ranges = append(ranges, ast.NewBasicLiteral(p.cOffs, p.s.file, p.cTok, p.cLit))
-			} else if p.cTok == token.IDENT {
-				ranges = append(ranges, ast.NewIdentExpr(p.cOffs, p.s.file, p.cLit))
-			} else {
-				p.errorHandler(p.cOffs, p.s.file, "expect identifier or integer")
-				return
-			}
-			p.next()
-			if len(ranges) == 2 {
-				if p.expect(token.LBRACE) != -1 {
-					i1 := ast.NewIdentExpr(offs, p.s.file, lit)
-					fob = ast.NewForRangeStatement(label, i1, ranges)
-				}
-			} else if p.expect(token.RANGE) != -1 {
-				goto readAgain
-			}
-		default:
-			goto invalidToken
-		}
-	case token.LBRACE:
-		p.next()
-		fob = ast.NewForStatement(label)
-	default:
-		goto invalidToken
-	}
-	// parse for body
-	for p.cTok != token.RBRACE {
-		if !p.parseSimpleStatement(fob) {
+			p.tfile = v
+			delete(p.pending, k)
 			break
 		}
+		p.block = p.cook.Block()
+		goto nextFile
 	}
-	if p.expect(token.RBRACE) != -1 && p.expect(token.LF) != -1 {
-		block.AddStatement(fob)
-	}
-	return
 
-invalidToken:
-	p.errorHandler(p.cOffs, p.s.file, fmt.Sprintf("unexpected token %s", p.cTok))
-}
-
-func (p *implParser) parseIfStatement(block ast.BlockStatement) {
-	expr := p.parseBinaryExpr(token.LowestPrec + 1)
-	if p.expect(token.LBRACE) != -1 {
-		ifStmt := ast.NewIfStatement(expr)
-		for p.cTok != token.RBRACE {
-			if !p.parseSimpleStatement(ifStmt) {
-				break
-			}
-		}
-		if p.expect(token.RBRACE) != -1 {
-			block.AddStatement(ifStmt)
-		}
-
-		if p.cTok == token.ELSE {
-			p.next()
-			elStmt := ast.NewElseStatement()
-			if p.cTok == token.IF {
-				p.parseIfStatement(elStmt)
-			} else if p.cTok == token.LBRACE {
-				p.next()
-				for p.cTok != token.RBRACE {
-					if !p.parseSimpleStatement(elStmt) {
-						break
-					}
-				}
-				p.expect(token.RBRACE)
-				p.expect(token.LF)
-			} else {
-				p.errorHandler(p.cOffs, p.s.file, "expected {")
-				return
-			}
-			ifStmt.Else = elStmt
-		} else {
-			p.expect(token.LF)
-		}
+	if p.errs != nil {
+		// return error stack
+		return nil, p.errs
+	} else {
+		return p.cook, nil
 	}
 }
 
-func (p *implParser) parseBinaryExpr(priority int) (x ast.Expr) {
+func (p *parser) parseIncludeDirective() {
 	p.next()
-	x = p.parseUnaryExpr()
-
-	for {
-		op, oprec := p.cTok, p.cTok.Precedence()
-		if oprec < priority {
+	if p.cTok == token.STRING {
+		_, ok1 := p.parsed[p.cLit]
+		_, ok2 := p.pending[p.cLit]
+		if ok1 || ok2 {
+			// file have already be parsed, nothing to do here.
 			return
 		}
+		file := p.cLit
+		p.next()
+		if p.expect(token.LF) == -1 {
+			return
+		}
+		// new file
+		ifile := filepath.Join(filepath.Dir(p.s.file.Name()), file)
+		if stat, err := os.Stat(ifile); err != nil {
+			if os.IsNotExist(err) {
+				p.errorHandler(p.curPos(), "included file %s not found", ifile)
+			} else {
+				p.errorHandler(p.curPos(), "unable to read included file %s ", ifile)
+			}
+		} else {
+			p.pending[p.cLit] = token.NewFile(ifile, int(stat.Size()))
+		}
+	} else {
+		p.errorHandler(p.curPos(), "include directive expected string")
+	}
+}
+
+func (p *parser) parseIdentifier(head bool) {
+	switch p.nTok {
+	case token.COLON:
+		p.parseTarget()
+	case token.LPAREN:
+		// function declaration or calling a function
+		p.parseDeclareFunction(false)
+	case token.LBRACK:
+		// index expression
+		if x := p.parseIndexExpression(); x != nil {
+			p.parseAssignStatement(x)
+		}
+	case token.LBRACE:
+		// slice or delete
+		if head {
+			p.next()
+			p.errorHandler(p.curPos(), "unexpected %s", p.cTok)
+			return
+		}
+	case token.INC, token.DEC:
+		offs, lit := p.cOffs, p.cLit
+		p.next()
+		p.block.Append(&ast.ExprWrapperStatement{
+			X: &ast.IncDec{
+				Op: p.cTok,
+				X:  &ast.Ident{Base: &ast.Base{Offset: offs, File: p.tfile}, Name: lit},
+			},
+		})
+		p.next()
+		p.expect(token.LF)
+	default:
+		settable := &ast.Ident{Base: &ast.Base{Offset: p.cOffs, File: p.tfile}, Name: p.cLit}
+		p.parseAssignStatement(settable)
+		if p.cTok == token.LF {
+			p.next()
+		}
+	}
+}
+
+func (p *parser) parseTarget() {
+	offs, name := p.cOffs, p.cLit
+	p.next()
+	if t, err := p.cook.AddTarget(&ast.Base{File: p.tfile, Offset: offs}, name); err != nil {
+		p.errorHandler(p.curPos(), err.Error())
+	} else if p.next(); name == "all" && p.cTok == token.MUL {
+		t.SetCallAll()
+		p.next()
+	} else {
+		p.block = t.Insts
+	}
+}
+
+func (p *parser) parseAssignStatement(settableNode ast.SettableNode) {
+	offs := p.cOffs
+	p.next()
+	op := p.cTok
+	switch {
+	case p.cTok == token.ASSIGN:
+		fallthrough
+	case token.ADD_ASSIGN <= p.cTok && p.cTok <= token.REM_ASSIGN:
+		fallthrough
+	case token.AND_ASSIGN <= p.cTok && p.cTok <= token.AND_NOT_ASSIGN:
+		assignStmt := &ast.AssignStatement{
+			Base:  &ast.Base{Offset: offs, File: p.tfile},
+			Op:    op,
+			Ident: settableNode,
+		}
+		if p.nTok == token.AT || p.nTok == token.HASH {
+			p.next()
+			assignStmt.Value = p.parseCallReference(true)
+		} else {
+			assignStmt.Value = p.parseBinaryExpr(false, token.LowestPrec+1)
+		}
+		if p.cTok == token.LF {
+			// newline is option on assign statement
+			p.next()
+		}
+		p.block.Append(assignStmt)
+	default:
+		p.errorHandler(p.curPos(), "unexpected %s", p.cTok)
+	}
+}
+
+func (p *parser) parseBinaryExpr(isChaining bool, priority int) ast.Node {
+	p.next()
+	if p.cTok == token.IDENT && p.nTok == token.LPAREN {
+		return p.parseTransformation()
+	}
+
+	x := p.parseUnaryExpr()
+	if isChaining && p.cTok.IsComparison() {
+		return x
+	}
+
+	var prevNode ast.Node
+	for {
+		op, oprec := p.cTok, p.cTok.Precedence()
+		if oprec < priority || isChaining && op.IsComparison() {
+			return x
+		}
+		// check for chaining comparision
+		// <, ≤ (<=), >, ≥ (>=), ≠ (!=), ==, is
+
 		// special case for is, ternary and fallback expression
 		if op == token.QES {
 			// ternary case or short if
 			x = p.parseTernaryExpr(x)
-		} else if op == token.DQES {
+		} else if op == token.DQS {
 			// fallback expression
 			x = p.parseFallbackExpr(x)
 		} else if op == token.IS {
 			x = p.parseIsExpr(x)
 		} else {
 			offs := p.cOffs
-			y := p.parseBinaryExpr(oprec + 1)
-			if !p.ignore {
-				x = ast.NewBinaryExpr(offs, p.s.file, op, x, y)
+			isComp := op.IsComparison()
+			y := p.parseBinaryExpr(isChaining || isComp, oprec+1)
+			ly := y
+			if prevNode != nil {
+				y = &ast.Binary{
+					Base: &ast.Base{Offset: offs, File: p.tfile},
+					Op:   op,
+					L:    prevNode,
+					R:    y,
+				}
+				op = token.LAND
+				prevNode = nil
+			}
+			x = &ast.Binary{
+				Base: &ast.Base{Offset: offs, File: p.tfile},
+				Op:   op,
+				L:    x,
+				R:    y,
+			}
+			if isComp && p.cTok.IsComparison() {
+				prevNode = ly
 			}
 		}
 	}
 }
 
-func (p *implParser) parseTernaryExpr(cond ast.Expr) (x ast.Expr) {
-	offs := p.cOffs
-	t := p.parseBinaryExpr(token.LowestPrec + 1)
-	if p.cTok == token.COLON {
-		f := p.parseBinaryExpr(token.LowestPrec + 1)
-		x = ast.NewTernaryExpr(offs, p.s.file, cond, t, f)
-	} else {
-		p.errorHandler(p.cOffs, p.s.file, fmt.Sprintf("expect : but got %s", p.cLit))
-		p.next()
-	}
-	return
-}
-
-func (p *implParser) parseFallbackExpr(primary ast.Expr) (x ast.Expr) {
-	offs := p.cOffs
-	fx := p.parseBinaryExpr(token.LowestPrec + 1)
-	return ast.NewFallbackExpr(offs, p.s.file, primary, fx)
-}
-
-func (p *implParser) parseIsExpr(t ast.Expr) (x ast.Expr) {
-	offs := p.cOffs
-	p.next()
-	ttok := make([]token.Token, 0)
-	for {
-		if p.cTok.Type() > 0 {
-			ttok = append(ttok, p.cTok)
-		} else if p.cTok != token.OR {
-			break
-		}
-		p.next()
-	}
-	if len(ttok) == 0 {
-		p.errorHandler(offs, p.s.file, "invalid type check expression")
-	} else {
-		x = ast.NewIsTypeExpr(offs, p.s.file, t, ttok...)
-	}
-	return
-}
-
-func (p *implParser) parseUnaryExpr() (x ast.Expr) {
+func (p *parser) parseUnaryExpr() (x ast.Node) {
 	switch p.cTok {
 	case token.ADD, token.SUB, token.NOT, token.XOR:
 		offs, op := p.cOffs, p.cTok
 		p.next()
-		y := p.parseOperand()
-		if !p.ignore {
-			x = ast.NewUnaryExpr(offs, p.s.file, op, y)
+		opr, _ := p.parseOperand()
+		x = &ast.Unary{
+			Base: &ast.Base{Offset: offs, File: p.tfile},
+			Op:   op,
+			X:    opr,
 		}
 	case token.SIZEOF:
 		offs := p.cOffs
 		p.next()
-		y := p.parseOperand()
-		if !p.ignore {
-			x = ast.NewSizeOfExpr(offs, p.s.file, y)
+		opr, _ := p.parseOperand()
+		x = &ast.SizeOf{
+			Base: &ast.Base{Offset: offs, File: p.tfile},
+			X:    opr,
 		}
 	case token.VAR:
 		offs := p.cOffs
 		p.next()
 		lit := p.cLit
 		if p.expect(token.INTEGER) != -1 {
-			x = ast.NewIdentExpr(offs, p.s.file, lit)
+			x = &ast.Ident{Base: &ast.Base{Offset: offs, File: p.tfile}, Name: lit}
 		}
-	case token.TINTEGER:
-		x = p.parseTypeCaseExpr(reflect.Int64)
-	case token.TFLOAT:
-		x = p.parseTypeCaseExpr(reflect.Float64)
-	case token.TSTRING:
-		x = p.parseTypeCaseExpr(reflect.String)
-	case token.TBOOLEAN:
-		x = p.parseTypeCaseExpr(reflect.Bool)
+	case token.TINTEGER, token.TFLOAT, token.TSTRING, token.TBOOLEAN:
+		x = p.parseTypeCaseExpr()
 	default:
-		x = p.parseOperand()
+		x, _ = p.parseOperand()
 	}
 	return
 }
 
-func (p *implParser) parseTypeCaseExpr(to reflect.Kind) (x ast.Expr) {
-	offs := p.cOffs
-	p.next()
-	if p.expect(token.LPAREN) != -1 {
-		y := p.parseOperand()
-		if p.expect(token.RPAREN) != -1 && !p.ignore {
-			x = ast.NewTypeCastExpr(offs, p.s.file, y, to)
-		}
-	}
-	return
-}
-
-func (p *implParser) parseOperand() (x ast.Expr) {
-	// ensure that simpleOperand reset after done parsing
-	defer func() { p.simpleOperand = false }()
-
+func (p *parser) parseOperand() (x ast.Node, kind token.Token) {
 	switch p.cTok {
 	case token.IDENT:
-		offs := p.cOffs
-		if !p.ignore {
-			x = ast.NewIdentExpr(offs, p.s.file, p.cLit)
+		if p.nTok == token.LBRACK {
+			x = p.parseIndexExpression()
+		} else {
+			offs := p.cOffs
+			x = &ast.Ident{Base: &ast.Base{Offset: offs, File: p.tfile}, Name: p.cLit}
 		}
 		p.next()
-		if p.cTok == token.LBRACK {
-			// indexing expr
-			p.simpleOperand = true
-			index := p.parseBinaryExpr(token.LowestPrec + 1)
-			if index == nil {
-				return
-			}
-			if p.expect(token.RBRACK) != -1 && !p.ignore {
-				x = ast.NewIndexExpr(offs, p.s.file, index, x)
-			}
-		}
-		return
-
+		kind = token.IDENT
 	case token.INTEGER, token.FLOAT, token.STRING, token.BOOLEAN:
-		if !p.ignore {
-			if p.cExpr != nil && p.cTok == token.STRING {
-				x = p.cExpr
-			} else {
-				x = ast.NewBasicLiteral(p.cOffs, p.s.file, p.cTok, p.cLit)
-			}
+		if p.cTok == token.STRING {
+			x = &ast.BasicLit{Base: &ast.Base{Offset: p.cOffs, File: p.tfile}, Lit: p.cLit, Kind: p.cTok, Mark: p.s.src[p.cOffs-1]}
+		} else {
+			x = &ast.BasicLit{Base: &ast.Base{Offset: p.cOffs, File: p.tfile}, Lit: p.cLit, Kind: p.cTok}
 		}
+		kind = p.cTok
 		p.next()
-		return
-
+	case token.STRING_ITP:
+		x, kind = p.parseStringInterpolation(), token.STRING
 	case token.LPAREN:
 		lparen := p.cOffs
-		inx := p.parseBinaryExpr(token.LowestPrec + 1) // types may be parenthesized: (some type)
-		if p.expect(token.RPAREN) != -1 {
-			if !p.ignore {
-				x = ast.NewParanExpr(lparen, p.s.file, inx)
-			}
+		inx := p.parseBinaryExpr(false, token.LowestPrec+1) // types may be parenthesized: (some type)
+		if p.expect(token.RPAREN) == -1 {
+			return nil, 0
 		}
-		return
+		kind = token.LPAREN
+		x = &ast.Paren{Base: &ast.Base{Offset: lparen, File: p.tfile}, Inner: inx}
+	case token.LBRACE:
+		x, kind = p.parseMapLiteral(), token.MAP
+	case token.LBRACK:
+		x, kind = p.parserArrayLiteral(), token.ARRAY
 	default:
-		switch {
-		case !p.simpleOperand && p.cTok == token.LBRACE:
-			return p.parseMapLiteral()
-		case !p.simpleOperand && p.cTok == token.LBRACK:
-			return p.parseListLiteral()
-		default:
-			p.errorHandler(p.cOffs, p.s.file, fmt.Sprintf("invalid token %s", p.cTok))
-		}
-	}
-	return nil
-}
-
-func (p *implParser) parseListLiteral() (x ast.Expr) {
-	offs := p.s.offset
-	p.next()
-	var values []ast.Expr
-	if !p.ignore {
-		if p.cTok != token.RBRACK {
-			values = append(values, p.parseOperand())
-		} else {
-			values = make([]ast.Expr, 0)
-		}
-	} else if p.cTok != token.RBRACK {
-		p.parseOperand()
-	}
-loop:
-	for {
-		switch p.cTok {
-		case token.RBRACK, token.EOF:
-			break loop
-		case token.COMMA:
-			p.next()
-			if p.cTok == token.RBRACK {
-				break loop
-			}
-			y := p.parseOperand()
-			if !p.ignore {
-				values = append(values, y)
-			}
-		}
-	}
-	if p.expect(token.RBRACK) != -1 && !p.ignore {
-		x = ast.NewListLiteral(offs, p.s.file, values)
+		p.errorHandler(p.curPos(), fmt.Sprintf("invalid token %s", p.cTok))
 	}
 	return
 }
 
-func (p *implParser) parseMapLiteral() (x ast.Expr) {
+func (p *parser) parseStringInterpolation() ast.Node {
+	offs := p.cOffs
+	sib := ast.NewStringInterpolationBuilder(p.s.src[offs-1])
+	for {
+		switch {
+		case p.cTok == token.STRING_ITP:
+			sib.WriteString(p.cLit)
+			p.next()
+			if p.cTok != token.VAR {
+				return sib.Build(offs, p.tfile)
+			}
+			p.next()
+		case p.cTok == token.VAR:
+			p.next()
+		default:
+			return sib.Build(offs, p.tfile)
+		}
+		// require following to a variable or an expression
+		switch p.cTok {
+		case token.IDENT:
+			sib.AddExpression(&ast.Ident{Base: &ast.Base{Offset: p.cOffs, File: p.tfile}, Name: p.cLit})
+			p.next()
+		case token.LBRACE:
+			x := p.parseBinaryExpr(false, token.LowestPrec+1)
+			if p.expect(token.RBRACE) == -1 {
+				return nil
+			}
+			sib.AddExpression(x)
+		}
+	}
+}
+
+func (p *parser) parseMapLiteral() ast.Node {
 	offs := p.s.offset
 	p.next()
-	var keys []ast.Expr
-	var values []ast.Expr
-	if !p.ignore {
-		keys = make([]ast.Expr, 0)
-		values = make([]ast.Expr, 0)
-	}
+	var keys []ast.Node
+	var values []ast.Node
+	keys = make([]ast.Node, 0)
+	values = make([]ast.Node, 0)
 	if p.cTok != token.RBRACE {
 	loop:
 		for {
-			k := p.parseOperand()
-			if !p.ignore {
-				keys = append(keys, k)
-			}
+			k, _ := p.parseOperand()
+			keys = append(keys, k)
 			if p.expect(token.COLON) != -1 {
-				v := p.parseOperand()
-				if !p.ignore {
-					values = append(values, v)
-				}
+				v, _ := p.parseOperand()
+				values = append(values, v)
 			} else {
-				return
+				return nil
 			}
 			switch p.cTok {
 			case token.RBRACE, token.EOF:
@@ -787,8 +486,491 @@ func (p *implParser) parseMapLiteral() (x ast.Expr) {
 			}
 		}
 	}
-	if p.expect(token.RBRACE) != -1 && !p.ignore {
-		x = ast.NewMapLiteral(offs, p.s.file, keys, values)
+	if p.expect(token.RBRACE) != -1 {
+		return &ast.MapLiteral{Base: &ast.Base{Offset: offs, File: p.tfile}, Keys: keys, Values: values}
+	} else {
+		return nil
 	}
-	return
+}
+
+func (p *parser) parserArrayLiteral() ast.Node {
+	offs := p.s.offset
+	p.next()
+	var values []ast.Node
+	if p.cTok != token.RBRACK {
+		x, _ := p.parseOperand()
+		values = append(values, x)
+	} else {
+		values = make([]ast.Node, 0)
+	}
+loop:
+	for {
+		switch p.cTok {
+		case token.RBRACK, token.EOF:
+			break loop
+		case token.COMMA:
+			p.next()
+			if p.cTok == token.RBRACK {
+				break loop
+			}
+			y, _ := p.parseOperand()
+			values = append(values, y)
+		}
+	}
+	if p.expect(token.RBRACK) != -1 {
+		return &ast.ArrayLiteral{Base: &ast.Base{Offset: offs, File: p.tfile}, Values: values}
+	} else {
+		return nil
+	}
+}
+
+func (p *parser) parseForLoop(inForLoop bool) {
+	offs := p.cOffs
+	p.next()
+	label := ""
+	if p.cTok == token.COLON {
+		if p.next(); p.cTok != token.IDENT {
+			p.errorHandler(p.curPos(), "expect for loop label but got %s", p.cTok)
+			return
+		}
+		label = p.cLit
+		p.next()
+	}
+	ioffs, ilit := p.cOffs, p.cLit
+	var (
+		i, value *ast.Ident
+		oprd     ast.Node
+		lrange   *ast.Interval
+		blcOffs  int
+	)
+	if p.cTok == token.IDENT {
+		p.next()
+		if p.cTok == token.COMMA {
+			// for in array, map or string
+			p.next()
+			voffs, vlit := p.cOffs, p.cLit
+			if p.expect(token.IDENT) == -1 {
+				return
+			}
+			if p.expect(token.IN) == -1 {
+				return
+			}
+			var tok token.Token
+			oprd, tok = p.parseOperand()
+			switch tok {
+			case token.INTEGER, token.FLOAT, token.BOOLEAN:
+				p.errorHandler(oprd.Position(), "for loop can iterate through %s", tok)
+				return
+			}
+			blcOffs = p.cOffs
+			if p.expect(token.LBRACE) == -1 {
+				return
+			}
+			i = &ast.Ident{Base: &ast.Base{Offset: ioffs, File: p.tfile}, Name: ilit}
+			value = &ast.Ident{Base: &ast.Base{Offset: voffs, File: p.tfile}, Name: vlit}
+		} else {
+			// a range loop
+			if p.expect(token.IN) == -1 {
+				return
+			}
+			lrange = p.parseInterval()
+			blcOffs = p.cOffs
+			if p.expect(token.LBRACE) == -1 {
+				return
+			}
+			i = &ast.Ident{Base: &ast.Base{Offset: ioffs, File: p.tfile}, Name: ilit}
+		}
+	} else if p.expect(token.LBRACE) == -1 {
+		return
+	}
+	bstmt := &ast.BlockStatement{Base: &ast.Base{Offset: blcOffs, File: p.tfile}}
+	if p.parseBlock(true, bstmt) {
+		p.block.Append(&ast.ForStatement{
+			Base:  &ast.Base{Offset: offs, File: p.tfile},
+			Label: label,
+			I:     i,
+			Value: value,
+			Oprnd: oprd,
+			Range: lrange,
+			Insts: bstmt,
+		})
+	}
+}
+
+func (p *parser) parseIf(inForLoop bool, elstmt *ast.ElseStatement) {
+	offs := p.cOffs
+	cond := p.parseBinaryExpr(false, token.LowestPrec+1)
+	blcOffs := p.cOffs
+	if p.expect(token.LBRACE) == -1 {
+		return
+	}
+	bstmt := &ast.BlockStatement{Base: &ast.Base{Offset: blcOffs, File: p.tfile}}
+	if p.parseBlock(inForLoop, bstmt) {
+		ifstmt := &ast.IfStatement{
+			Base:  &ast.Base{Offset: offs, File: p.tfile},
+			Cond:  cond,
+			Insts: bstmt,
+		}
+		if elstmt == nil {
+			p.block.Append(ifstmt)
+		} else {
+			elstmt.IfStmt = ifstmt
+		}
+		// parse else statement if there any
+		if p.cTok != token.ELSE {
+			return
+		}
+		elOffs := p.cOffs
+		p.next()
+		elstmt := &ast.ElseStatement{
+			Base: &ast.Base{Offset: elOffs, File: p.tfile},
+		}
+		if p.cTok == token.IF {
+			p.parseIf(inForLoop, elstmt)
+		} else {
+			blcOffs = p.cOffs
+			if p.expect(token.LBRACE) == -1 {
+				return
+			}
+			elstmt.Insts = &ast.BlockStatement{Base: &ast.Base{Offset: blcOffs, File: p.tfile}}
+			if !p.parseBlock(inForLoop, elstmt.Insts) {
+				return
+			}
+		}
+		ifstmt.Else = elstmt
+	}
+}
+
+func (p *parser) parseBlock(inForLoop bool, block *ast.BlockStatement) bool {
+	prevBlock := p.block
+	p.block = block
+	defer func() { p.block = prevBlock }()
+	for p.cTok != token.RBRACE && p.cTok != token.EOF {
+		switch p.cTok {
+		case token.IDENT:
+			if p.nTok == token.INC || p.nTok == token.DEC {
+				offs, lit := p.cOffs, p.cLit
+				p.next()
+				p.block.Append(&ast.ExprWrapperStatement{
+					X: &ast.IncDec{
+						Op: p.cTok,
+						X:  &ast.Ident{Base: &ast.Base{Offset: offs, File: p.tfile}, Name: lit},
+					},
+				})
+				p.next()
+				p.expect(token.LF)
+			} else {
+				if p.nTok == token.LBRACK {
+					if x := p.parseIndexExpression(); x != nil {
+						p.parseAssignStatement(x)
+					}
+				} else {
+					settable := &ast.Ident{Base: &ast.Base{Offset: p.cOffs, File: p.tfile}, Name: p.cLit}
+					p.parseAssignStatement(settable)
+				}
+			}
+		case token.AT, token.HASH:
+			// parse invocation command call
+			p.parseCallReference(false)
+		case token.FOR:
+			p.parseForLoop(inForLoop)
+		case token.IF:
+			p.parseIf(inForLoop, nil)
+		case token.EXIT:
+			// parse exit
+			offs := p.cOffs
+			if code := p.parseBinaryExpr(false, token.LowestPrec+1); code != nil {
+				p.block.Append(&ast.ExprWrapperStatement{
+					X: &ast.Exit{Base: &ast.Base{Offset: offs, File: p.tfile}, ExitCode: code},
+				})
+			}
+			p.expect(token.LF)
+		case token.RETURN:
+			// parse return
+			p.block.Append(&ast.ReturnStatement{
+				Base: &ast.Base{Offset: p.cOffs, File: p.tfile},
+				X:    p.parseBinaryExpr(false, token.LowestPrec+1),
+			})
+		case token.BREAK, token.CONTINUE:
+			offs, label, op := p.cOffs, "", p.cTok
+			p.next()
+			if p.cTok == token.COLON {
+				p.next()
+				label = p.cLit
+				if p.expect(token.IDENT) == -1 {
+					return false
+				}
+			}
+			p.block.Append(&ast.BreakContinueStatement{
+				Base:  &ast.Base{Offset: offs, File: p.tfile},
+				Op:    op,
+				Label: label,
+			})
+			if p.cTok == token.LF {
+				// skip optional line feed
+				p.next()
+			}
+		case token.COMMENT:
+			p.next()
+			// eat comment for now
+			// TODO: add comment to token file
+		}
+	}
+	endBlock := p.cTok == token.RBRACE
+	p.next()
+	if p.cTok == token.LF {
+		p.next()
+	}
+	return endBlock
+}
+
+func (p *parser) parseIndexExpression() ast.SettableNode {
+	offs, lit := p.cOffs, p.cLit
+	if p.next(); p.cTok != token.LBRACK {
+		p.errorHandler(p.curPos(), "expect [ but got %s", p.cTok)
+		return nil
+	}
+	index := p.parseBinaryExpr(false, token.LowestPrec+1)
+	if p.cTok != token.RBRACK {
+		return nil
+	}
+	base := &ast.Base{Offset: offs, File: p.tfile}
+	return &ast.Index{
+		Base:  base,
+		Index: index,
+		X:     &ast.Ident{Base: base, Name: lit},
+	}
+}
+
+func (p *parser) parseInterval() *ast.Interval {
+	offs := p.cOffs
+	var aic, bic bool
+	switch p.cTok {
+	case token.LBRACE, token.LPAREN, token.RBRACK:
+		p.next()
+		aic = false
+	case token.LBRACK:
+		p.next()
+		fallthrough
+	default:
+		aic = true
+	}
+	a, _ := p.parseOperand()
+	if p.expect(token.RANGE) == -1 {
+		return nil
+	}
+	b, _ := p.parseOperand()
+	switch p.cTok {
+	case token.RBRACE, token.RPAREN, token.LBRACK:
+		p.next()
+		bic = false
+	case token.RBRACK:
+		p.next()
+		fallthrough
+	default:
+		bic = true
+	}
+	return &ast.Interval{Base: &ast.Base{Offset: offs, File: p.tfile}, A: a, AInclude: aic, B: b, BInclude: bic}
+}
+
+func (p *parser) parseTernaryExpr(x ast.Node) ast.Node {
+	offs := p.cOffs
+	tx := p.parseBinaryExpr(false, token.LowestPrec+1)
+	if p.cTok == token.COLON {
+		return &ast.Conditional{
+			Base:  &ast.Base{Offset: offs, File: p.tfile},
+			Cond:  x,
+			True:  tx,
+			False: p.parseBinaryExpr(false, token.LowestPrec+1),
+		}
+	} else {
+		p.errorHandler(p.curPos(), "expect ':' but got %s", p.cTok)
+	}
+	return nil
+}
+
+func (p *parser) parseFallbackExpr(x ast.Node) ast.Node {
+	offs := p.cOffs
+	return &ast.Fallback{
+		Base:    &ast.Base{Offset: offs, File: p.tfile},
+		Primary: x,
+		Default: p.parseBinaryExpr(false, token.LowestPrec+1),
+	}
+}
+
+func (p *parser) parseIsExpr(x ast.Node) ast.Node {
+	offs := p.cOffs
+	var types []token.Token
+	p.next()
+	for {
+		switch {
+		case token.TINTEGER <= p.cTok && p.cTok <= token.TMAP:
+			types = append(types, p.cTok)
+		case p.cTok == token.OR:
+			// do nothing
+		default:
+			return &ast.IsType{
+				Base:  &ast.Base{Offset: offs, File: p.tfile},
+				X:     x,
+				Types: types,
+			}
+		}
+		p.next()
+	}
+}
+
+func (p *parser) parseTypeCaseExpr() ast.Node {
+	offs := p.cOffs
+	to := p.cTok
+	p.next()
+	if p.cTok == token.LPAREN {
+		x := p.parseBinaryExpr(false, token.LowestPrec+1)
+		if p.expect(token.RPAREN) != -1 {
+			return &ast.TypeCast{
+				Base: &ast.Base{Offset: offs, File: p.tfile},
+				To:   to,
+				X:    x,
+			}
+		}
+	} else {
+		p.errorHandler(p.curPos(), "expected (")
+	}
+	return nil
+}
+
+func (p *parser) parseTransformation() ast.Node {
+	ioffs, ilit := p.cOffs, p.cLit
+	p.next()
+	ftOffs := p.cOffs
+	if p.expect(token.LPAREN) == -1 {
+		return nil
+	}
+	if fn := p.parseDeclareFunction(true); fn != nil {
+		return &ast.Transformation{
+			Base:  &ast.Base{Offset: ftOffs, File: p.tfile},
+			Ident: &ast.Ident{Base: &ast.Base{Offset: ioffs, File: p.tfile}, Name: ilit},
+			Fn:    fn,
+		}
+	}
+	return nil
+}
+
+func (p *parser) parseCallReference(assign bool) ast.Node {
+	callOffs := p.cOffs
+	kind := p.cTok
+	p.next()
+	name := p.cLit
+	if p.expect(token.IDENT) == -1 {
+		return nil
+	}
+	var args []ast.Node
+	var redirect *ast.RedirectTo
+	for p.cTok != token.LF && p.cTok != token.EOF {
+		switch p.cTok {
+		case token.WRITE_TO, token.APPEND_TO:
+			if redirect != nil {
+				p.errorHandler(p.curPos(), "multiple write (>) or append (>>) to")
+				return nil
+			}
+			redirect = &ast.RedirectTo{
+				Base:   &ast.Base{Offset: p.cOffs, File: p.tfile},
+				Append: p.cTok == token.APPEND_TO,
+			}
+			p.next()
+		case token.READ_FROM:
+			if redirect != nil {
+				p.errorHandler(p.curPos(), "read from syntax is not allow after write or append to file")
+				return nil
+			}
+			offs := p.cOffs
+			p.next()
+			x, _ := p.parseOperand()
+			args = append(args, &ast.ReadFrom{
+				Base: &ast.Base{Offset: offs, File: p.tfile},
+				File: x,
+			})
+		default:
+			x, _ := p.parseOperand()
+			if redirect != nil {
+				redirect.Files = append(redirect.Files, x)
+			} else {
+				args = append(args, x)
+			}
+		}
+	}
+	var node ast.Node
+	if p.cTok == token.LF {
+		node = &ast.Call{
+			Base: &ast.Base{Offset: callOffs, File: p.tfile},
+			Kind: kind,
+			Name: name,
+			Args: args,
+		}
+		p.next()
+		if redirect != nil {
+			redirect.Caller = node
+			node = redirect
+		}
+		if assign {
+			return node
+		} else {
+			p.block.Append(&ast.ExprWrapperStatement{X: node})
+			return nil
+		}
+	}
+	return nil
+}
+
+func (p *parser) parseDeclareFunction(literal bool) *ast.Function {
+	var name string
+	if !literal {
+		name = p.cLit
+		if p.expect(token.IDENT) == -1 || p.expect(token.LPAREN) == -1 {
+			return nil
+		}
+	}
+	if args := p.parseDeclareArgument(); args == nil {
+		return nil
+	} else if p.expect(token.RPAREN) != -1 {
+		blcOff := p.cOffs
+		switch p.cTok {
+		case token.LAMBDA:
+			if x := p.parseBinaryExpr(false, token.LowestPrec+1); x != nil {
+				return &ast.Function{
+					Lambda: token.LAMBDA,
+					Args:   args,
+					X:      x,
+				}
+			}
+		case token.LBRACE:
+			p.next()
+			block := &ast.BlockStatement{Base: &ast.Base{Offset: blcOff, File: p.tfile}}
+			if p.parseBlock(false, block) {
+				return &ast.Function{
+					Name:  name,
+					Args:  args,
+					Insts: block,
+				}
+			}
+		default:
+			p.errorHandler(p.curPos(), "unexpected token %s", p.cTok)
+		}
+	}
+	return nil
+}
+
+func (p *parser) parseDeclareArgument() []*ast.Ident {
+	var args []*ast.Ident
+	for p.cTok != token.RPAREN {
+		if p.cTok == token.IDENT {
+			args = append(args, &ast.Ident{Base: &ast.Base{Offset: p.cOffs, File: p.tfile}, Name: p.cLit})
+			if p.next(); p.cTok == token.COMMA {
+				p.next()
+			}
+		} else {
+			p.errorHandler(p.curPos(), "expect identifier but got %s", p.cTok)
+			return nil
+		}
+	}
+	return args
 }

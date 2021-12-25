@@ -17,6 +17,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/cozees/cook/pkg/cook/parser"
+	"github.com/cozees/cook/pkg/runtime/args"
 	"github.com/cozees/cook/pkg/runtime/function"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -100,6 +102,14 @@ func ensureCompressBinary() {
 		})
 	}()
 	wait.Wait()
+}
+
+func TestSyntax(t *testing.T) {
+	opts, err := args.ParseMainArgument([]string{})
+	require.NoError(t, err)
+	p := parser.NewParser()
+	_, err = p.Parse(opts.Cookfile)
+	require.NoError(t, err)
 }
 
 type testInput struct {
@@ -470,7 +480,7 @@ func testWithCase(t *testing.T, testName, xname, exeType string, cases []*testIn
 		cmd := exec.Command(executableName(xname), args...)
 		cmd.Stderr = errBuf
 		buf, err := cmd.Output()
-		if err != nil {
+		if err != nil || errBuf.Len() > 0 {
 			fmt.Println(errBuf.String())
 			t.Logf("ARGS: %s", strings.Join(tc.args, " "))
 		}

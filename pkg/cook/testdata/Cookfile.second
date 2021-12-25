@@ -3,10 +3,10 @@ sampleNestLoop:
     if TEST_NEST_LOOP {
         a11 = 0
         b22 = 0
-        for@out1 i in 1..200 {
+        for:out1 i in 1..200 {
             if i < 100 {
                 a11 += 1
-                for@middle1 iv, v in LIST {
+                for:middle1 iv, v in LIST {
                     if v > 10 {
                         i += iv
                     } else {
@@ -14,14 +14,14 @@ sampleNestLoop:
                         for imv, mv in LISTA {
                             if mv is integer | float {
                                 if mv > 30 {
-                                    continue @middle1
+                                    continue:middle1
                                 }
                                 i += integer(mv)
                                 a11 += 4
                             } else {
                                 // break current loop and middle
                                 // and continue execute immediately at out1 loop
-                                continue @out1
+                                continue:out1
                             }
                         }
                     }
@@ -38,5 +38,5 @@ sampleNestLoop:
                 }
             }
         }
-        @print -e -n $a11 $b22 > $FILE1
+        @print "-e" "-n" a11 b22 > FILE1
     }

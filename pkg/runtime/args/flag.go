@@ -170,7 +170,7 @@ type Flag struct {
 	Description string
 }
 
-func (flag *Flag) Set(field reflect.Value, val string, nextArg interface{}, nextArgKind reflect.Kind) (advance bool, err error) {
+func (flag *Flag) Set(fname string, field reflect.Value, val string, nextArg interface{}, nextArgKind reflect.Kind) (advance bool, err error) {
 	// get field type
 	t := field.Kind()
 	switch {
@@ -282,7 +282,7 @@ func (flag *Flag) Set(field reflect.Value, val string, nextArg interface{}, next
 				advance = true
 				break
 			} else if nextArgKind != reflect.String {
-				return false, fmt.Errorf("value %v type %s is compatible with %s", nextArg, nextArgKind, t)
+				return false, fmt.Errorf("value '%v' type %s is not compatible with field '%s' type %s", nextArg, nextArgKind, fname, t)
 			}
 			advance = true
 			val = nextArg.(string)
@@ -417,6 +417,7 @@ func (flags *Flags) parseInternal(args []string, fnArgs []*FunctionArg) (v inter
 		narg   interface{}
 		nargk  reflect.Kind
 		field  reflect.Value
+		fname  string // field name
 	)
 	// set default value to each field if defined
 	if err = setDefaultFieldValue(flags.Result, val); err != nil {
@@ -453,11 +454,15 @@ func (flags *Flags) parseInternal(args []string, fnArgs []*FunctionArg) (v inter
 			} else if nargk = reflect.ValueOf(arg).Kind(); nargk != argsKind && argsKind != reflect.Interface {
 				return nil, fmt.Errorf("wrong argument %v type %s required type %s", arg, nargk, argsKind)
 			}
+			if (argsField == reflect.Value{}) {
+				t := reflect.TypeOf(flags.Result)
+				argsField = reflect.MakeSlice(t.Elem(), 0, length)
+			}
 			argsField.Set(reflect.Append(argsField, reflect.ValueOf(arg)))
 			continue
 		}
 		// find field in struct with tag that belong to the flag
-		if field, err = findField(flags.Result, val, flag.Long); err != nil {
+		if field, fname, err = findField(flags.Result, val, flag.Long); err != nil {
 			return
 		} else if !field.CanSet() {
 			err = fmt.Errorf("field was not found or not exported for flag %s", flag.Long)
@@ -473,7 +478,7 @@ func (flags *Flags) parseInternal(args []string, fnArgs []*FunctionArg) (v inter
 				nargk = fnArgs[n].Kind
 			}
 		}
-		if inc, err := flag.Set(field, fval, narg, nargk); err != nil {
+		if inc, err := flag.Set(fname, field, fval, narg, nargk); err != nil {
 			return nil, err
 		} else if inc {
 			i = n
@@ -523,7 +528,7 @@ func parseFlagValue(kind reflect.Kind, v string) (interface{}, error) {
 	}
 }
 
-func findField(t reflect.Type, v reflect.Value, name string) (rfield reflect.Value, err error) {
+func findField(t reflect.Type, v reflect.Value, name string) (rfield reflect.Value, filedName string, err error) {
 	numField := t.NumField()
 	mention, found := false, false
 	for i := 0; i < numField; i++ {
@@ -536,6 +541,7 @@ func findField(t reflect.Type, v reflect.Value, name string) (rfield reflect.Val
 				continue
 			}
 			rfield = v.Field(i)
+			filedName = field.Name
 			if defaultVal != nil {
 				rfield.Set(reflect.ValueOf(defaultVal))
 			}

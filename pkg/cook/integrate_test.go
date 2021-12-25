@@ -1,11 +1,15 @@
 package cook
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
+	"reflect"
 	"testing"
 
+	"github.com/cozees/cook/pkg/cook/ast"
 	"github.com/cozees/cook/pkg/cook/parser"
+	"github.com/cozees/cook/pkg/cook/token"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -49,27 +53,22 @@ var nestLoopTestCase = [][]interface{}{
 	{
 		[]interface{}{int64(1), int64(2), int64(3)},
 		[]interface{}{int64(1), int64(2), 1.3},
-		"392 32",
 	},
 	{
 		[]interface{}{int64(11), int64(4), int64(9)},
 		[]interface{}{22.4, int64(2), 1.3},
-		"108 33",
 	},
 	{
 		[]interface{}{int64(11), int64(5), int64(12)},
 		[]interface{}{true, false, 1.3},
-		"348 34",
 	},
 	{
 		[]interface{}{int64(9), int64(15), int64(122)},
 		[]interface{}{1.3, int64(40), false},
-		"192 34",
 	},
 	{
 		[]interface{}{int64(5), int64(7), int64(32)},
 		[]interface{}{24.8, int64(4), int64(40)},
-		"85 28",
 	},
 }
 
@@ -80,13 +79,8 @@ func cleanup() {
 	os.Remove(nestedResult)
 }
 
-func TestMain(m *testing.M) {
-	code := m.Run()
-	cleanup()
-	os.Exit(code)
-}
-
 func TestCookProgram(t *testing.T) {
+	defer cleanup()
 	p := parser.NewParser()
 	cook, err := p.Parse("testdata/Cookfile")
 	require.NoError(t, err)
@@ -95,7 +89,7 @@ func TestCookProgram(t *testing.T) {
 	for _, tc := range cases {
 		args[tc.vname] = tc.name
 	}
-	cook.Execute(args)
+	require.NoError(t, cook.Execute(args))
 	for i, tc := range cases {
 		t.Logf("TestCookProgram case #%d", i+1)
 		bo, err := ioutil.ReadFile(tc.name)
@@ -110,9 +104,93 @@ func TestCookProgram(t *testing.T) {
 		args["LIST"] = tc[0]
 		args["LISTA"] = tc[1]
 		args["FILE1"] = nestedResult
-		cook.ExecuteWithTarget(args, "sampleNestLoop")
+		require.NoError(t, cook.ExecuteWithTarget(args, "sampleNestLoop"))
 		bo, err := ioutil.ReadFile(nestedResult)
-		assert.NoError(t, err)
-		assert.Equal(t, tc[2], string(bo))
+		require.NoError(t, err)
+		expectResult := resultNestLoop(tc[0].([]interface{}), tc[1].([]interface{}))
+		require.Equal(t, expectResult, string(bo))
+	}
+}
+
+func resultNestLoop(LIST, LISTA []interface{}) string {
+	a11 := 0
+	b22 := 0
+out1:
+	for i := 1; i <= 200; i++ {
+		if i < 100 {
+			a11 += 1
+		middle1:
+			for iv, v := range LIST {
+				if inv, ok := v.(int64); ok && inv > 10 {
+					i += iv
+				} else {
+					a11 += 2
+					for _, mv := range LISTA {
+						if inmv, ok := mv.(int64); ok {
+							if inmv > 30 {
+								continue middle1
+							}
+							i += int(inmv)
+							a11 += 4
+						} else if fnmv, ok := mv.(float64); ok {
+							if fnmv > 30 {
+								continue middle1
+							}
+							i += int(fnmv)
+							a11 += 4
+						} else {
+							continue out1
+						}
+					}
+				}
+			}
+		} else {
+			b22++
+			i += 2
+			if i%3 == 2 {
+				a11++
+				i++
+			} else {
+				a11 += 2
+				i--
+			}
+		}
+	}
+	return fmt.Sprintf("%d %d", a11, b22)
+}
+
+type Source struct {
+	src      string
+	verifier func(t *testing.T, scope ast.Scope)
+}
+
+var stateCases = []*Source{
+	{
+		src: `
+V = [[1,2],[3,4]]
+for i, iv in V {
+	iv += 'text'
+}
+all:
+`,
+		verifier: func(t *testing.T, scope ast.Scope) {
+			v, vk, _ := scope.GetVariable("V")
+			require.Equal(t, reflect.Slice, vk)
+			assert.Equal(t, []interface{}{
+				[]interface{}{int64(1), int64(2), "text"},
+				[]interface{}{int64(3), int64(4), "text"},
+			}, v)
+		},
+	},
+}
+
+func TestExecuteState(t *testing.T) {
+	for i, tc := range stateCases {
+		t.Logf("TestExecuteState case #%d", i+1)
+		p := parser.NewParser()
+		c, err := p.ParseSrc(token.NewFile("sample", len(tc.src)), []byte(tc.src))
+		require.NoError(t, err)
+		require.NoError(t, c.Execute(nil))
+		tc.verifier(t, c.Scope())
 	}
 }

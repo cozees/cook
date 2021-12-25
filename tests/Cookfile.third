@@ -3,10 +3,10 @@ thirdFile = "Sample text third file"
 
 thirdATarget:
     for a, b in [1,3] {
-        @print $a $b
+        @print a b
     }
 
 thirdBTarget:
     for k, v in {1:2, "abc":true} {
-        @print $k $v
+        @print k v
     }

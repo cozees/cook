@@ -1,62 +1,69 @@
 package token
 
-import (
-	"strconv"
-)
+import "reflect"
 
 type Token int
 
 const (
 	ILLEGAL Token = iota
 	EOF
+	// type specific
 	COMMENT
-
 	literal_beg
-	IDENT
-	INTEGER
-	FLOAT
-	STRING
-	BOOLEAN
+	// order of the below token is important to has the same order as
+	// TINTEGER, TFLOAT ...etc
+	INTEGER // 125
+	FLOAT   // 1.23
+	BOOLEAN // true, false
+	STRING  // 'text', "text", `text`, text
+	ARRAY   // {1:2, 3:2}
+	MAP     // [1, 2, 3]
+	// none order needed
+	IDENT      // name, variable
+	STRING_ITP // sample $A text
 	literal_end
 
 	operator_beg
-	ADD // +
-	SUB // -
-	MUL // *
-	QUO // /
-	REM // %
-
-	ADD_ASSIGN // +=
-	SUB_ASSIGN // -=
-	MUL_ASSIGN // *=
-	QUO_ASSIGN // /=
-	REM_ASSIGN // %=
-
-	AND // &
-	OR  // |
-	XOR // ^
-	SHL // <<
-	SHR // >>
-
-	LAND    // &&
-	LOR     // ||
-	INC     // ++
-	DEC     // --
-	AND_NOT // &^
-
-	EQL // ==
-	LSS // <
-	GTR // >
-	NEQ // !=
-	LEQ // <=
-	GEQ // >=
-
-	NOT // !
-
-	ASSIGN    // =, assign or define
-	READ_FROM // <, special case from redirect content from file
-	ASSIGN_TO // >, special case for redirect content to file
-	APPEND_TO // >>, special case for redirect content to append into exit file or create a new file if not exist
+	ADD            // +
+	SUB            // -
+	MUL            // *
+	QUO            // /
+	REM            // %
+	ADD_ASSIGN     // +=
+	SUB_ASSIGN     // -=
+	MUL_ASSIGN     // *=
+	QUO_ASSIGN     // /=
+	REM_ASSIGN     // %=
+	INC            // ++
+	DEC            // --
+	AND            // &
+	LAND           // &&
+	OR             // |
+	LOR            // ||
+	XOR            // ^
+	SHL            // <<
+	SHR            // >>
+	AND_NOT        // &^
+	AND_ASSIGN     // &=
+	OR_ASSIGN      // |=
+	AND_NOT_ASSIGN // &^=
+	ASSIGN         // =
+	LAMBDA         // =>
+	NOT            // !
+	EQL            // ==
+	NEQ            // !=
+	LSS            // <
+	LEQ            // <=
+	GTR            // >
+	GEQ            // >=
+	READ_FROM      // <
+	WRITE_TO       // >
+	APPEND_TO      // >>
+	AT             // @
+	HASH           // #
+	VAR            // $
+	QES            // ?
+	DQS            // ??
 
 	LBRACK // [
 	LBRACE // {
@@ -64,154 +71,140 @@ const (
 	RBRACE // }
 	LPAREN // (
 	RPAREN // )
-
-	COMMA // ,
-	COLON // :
-	AT    // @
-	HASH  // #
-	LF    // \n, \r, \r\n : line feed
-	VAR   // $
-	QES   // ?
-	DQES  // ??
+	COMMA  // ,
+	COLON  // :
+	LF     // \n,\r,\r\n: linefeed
 	operator_end
 
 	keyword_beg
+	FOR
+	IS
 	IF
 	ELSE
-	EXIT
-	IS
+	RETURN
 	IN
-	FOR
+	EXIT
 	RANGE
 	SIZEOF
-	CONTINUE
 	BREAK
+	CONTINUE
 	INCLUDE
-	// type keyword
-	keyword_type_beg
+	DELETE
+
+	// type keyword specific
+	type_rep_beg
 	TINTEGER
 	TFLOAT
-	TSTRING
 	TBOOLEAN
+	TSTRING
 	TARRAY
 	TMAP
 	TOBJECT
-	keyword_type_end
+	type_rep_end
+	// end of keyword session
 	keyword_end
 )
 
 var tokens = [...]string{
-	ILLEGAL: "ILLEGAL",
-	EOF:     "EOF",
-	COMMENT: "COMMENT",
-
-	IDENT:   "IDENT",
-	INTEGER: "INTEGER",
-	FLOAT:   "FLOAT",
-	STRING:  "STRING",
-	BOOLEAN: "BOOLEAN",
-
-	ADD: "+",
-	SUB: "-",
-	MUL: "*",
-	QUO: "/",
-	REM: "%",
-
-	ADD_ASSIGN: "+=",
-	SUB_ASSIGN: "-=",
-	MUL_ASSIGN: "*=",
-	QUO_ASSIGN: "/=",
-	REM_ASSIGN: "%=",
-
-	AND:     "&",
-	OR:      "|",
-	XOR:     "^",
-	SHL:     "<<",
-	SHR:     ">>",
-	AND_NOT: "&^",
-
-	LAND: "&&",
-	LOR:  "||",
-	INC:  "++",
-	DEC:  "--",
-
-	EQL:       "==",
-	LSS:       "<",
-	GTR:       ">",
-	ASSIGN:    "=",
-	READ_FROM: "<",
-	ASSIGN_TO: ">",
-	APPEND_TO: ">>",
-	NOT:       "!",
-
-	NEQ: "!=",
-	LEQ: "<=",
-	GEQ: ">=",
-
-	LBRACK: "[",
-	LBRACE: "{",
-	LPAREN: "(",
-	RBRACK: "]",
-	RBRACE: "}",
-	RPAREN: ")",
-
-	COMMA: ",",
-	COLON: ":",
-	AT:    "@",
-	HASH:  "#",
-	VAR:   "$",
-	QES:   "?",
-	DQES:  "??",
-	LF:    "\n",
-
-	IF:       "if",
-	ELSE:     "else",
-	EXIT:     "exit",
-	IS:       "is",
-	IN:       "in",
-	FOR:      "for",
-	RANGE:    "range",
-	SIZEOF:   "sizeof",
-	CONTINUE: "continue",
-	BREAK:    "break",
-	INCLUDE:  "include",
-
-	TINTEGER: "integer",
-	TFLOAT:   "float",
-	TSTRING:  "string",
-	TBOOLEAN: "boolean",
-	TARRAY:   "array",
-	TMAP:     "map",
-	TOBJECT:  "object",
+	ILLEGAL:        "ILLEGAL",
+	COMMENT:        "COMMENT",
+	INTEGER:        "INTEGER",
+	FLOAT:          "FLOAT",
+	BOOLEAN:        "BOOLEAN",
+	STRING:         "STRING",
+	STRING_ITP:     "STRING_ITP",
+	MAP:            "MAP",
+	ARRAY:          "ARRAY",
+	IDENT:          "IDENT",
+	ADD:            "+",
+	SUB:            "-",
+	MUL:            "*",
+	QUO:            "/",
+	REM:            "%",
+	ADD_ASSIGN:     "+=",
+	SUB_ASSIGN:     "-=",
+	MUL_ASSIGN:     "*=",
+	QUO_ASSIGN:     "/=",
+	REM_ASSIGN:     "%=",
+	AND_ASSIGN:     "&=",
+	OR_ASSIGN:      "|=",
+	AND_NOT_ASSIGN: "&^=",
+	AND:            "&",
+	OR:             "|",
+	INC:            "++",
+	DEC:            "--",
+	LAND:           "&&",
+	LOR:            "||",
+	XOR:            "^",
+	SHL:            "<<",
+	SHR:            ">>",
+	AND_NOT:        "&^",
+	ASSIGN:         "=",
+	EQL:            "==",
+	LAMBDA:         "=>",
+	NOT:            "!",
+	NEQ:            "!=",
+	LSS:            "<",
+	LEQ:            "<=",
+	GTR:            ">",
+	GEQ:            ">=",
+	READ_FROM:      "<",
+	WRITE_TO:       ">",
+	APPEND_TO:      ">>",
+	AT:             "@",
+	HASH:           "#",
+	VAR:            "$",
+	QES:            "?",
+	DQS:            "??",
+	LBRACK:         "[",
+	LBRACE:         "{",
+	RBRACK:         "]",
+	RBRACE:         "}",
+	LPAREN:         "(",
+	RPAREN:         ")",
+	COMMA:          ",",
+	COLON:          ":",
+	LF:             "\n",
+	FOR:            "for",
+	IS:             "is",
+	IF:             "if",
+	ELSE:           "else",
+	RETURN:         "return",
+	IN:             "in",
+	EXIT:           "exit",
+	RANGE:          "..",
+	SIZEOF:         "sizeof",
+	BREAK:          "break",
+	CONTINUE:       "continue",
+	INCLUDE:        "include",
+	DELETE:         "delete",
+	TINTEGER:       "integer",
+	TFLOAT:         "float",
+	TBOOLEAN:       "boolean",
+	TSTRING:        "string",
+	TARRAY:         "array",
+	TMAP:           "map",
+	TOBJECT:        "object",
 }
 
-func (tok Token) String() string {
-	s := ""
-	if 0 <= tok && tok < Token(len(tokens)) {
-		s = tokens[tok]
-	}
-	if s == "" {
-		s = "token(" + strconv.Itoa(int(tok)) + ")"
-	}
-	return s
-}
+func (t Token) String() string { return tokens[t] }
 
 var keywords map[string]Token
 
 func init() {
 	keywords = make(map[string]Token)
-	for i := keyword_beg + 1; i < keyword_end; i++ {
-		if i != keyword_type_beg && i != keyword_type_end { // skip mark of type keyword
+	for i := keyword_beg; i < keyword_end; i++ {
+		if i != type_rep_beg && i != type_rep_end {
 			keywords[tokens[i]] = i
 		}
 	}
 }
 
-func Lookup(ident string) Token {
+func Lookup(ident string, tok Token) Token {
 	if tok, is_keyword := keywords[ident]; is_keyword {
 		return tok
 	}
-	return IDENT
+	return tok
 }
 
 func IsKeyword(name string) bool {
@@ -236,17 +229,60 @@ func (tok Token) IsOperator() bool {
 
 func (tok Token) IsKeyword() bool { return keyword_beg < tok && tok < keyword_end }
 
+func (tok Token) Kind() reflect.Kind {
+	if literal_beg < tok && tok < IDENT {
+		switch tok {
+		case INTEGER:
+			return reflect.Int64
+		case FLOAT:
+			return reflect.Float64
+		case BOOLEAN:
+			return reflect.Bool
+		case STRING:
+			return reflect.String
+		case MAP:
+			return reflect.Map
+		case ARRAY:
+			return reflect.Slice
+		}
+	} else if type_rep_beg < tok && tok < TOBJECT {
+		switch tok {
+		case TINTEGER:
+			return reflect.Int64
+		case TFLOAT:
+			return reflect.Float64
+		case TBOOLEAN:
+			return reflect.Bool
+		case TSTRING:
+			return reflect.String
+		case TMAP:
+			return reflect.Map
+		case TARRAY:
+			return reflect.Slice
+		}
+	}
+	return reflect.Invalid
+}
+
 func (tok Token) Type() int {
-	if keyword_type_beg < tok && tok < keyword_type_end {
-		return 1 << (int(tok-keyword_type_beg) - 1)
+	if type_rep_beg < tok && tok < type_rep_end {
+		return 1 << (int(tok-type_rep_beg) - 1)
 	}
 	return 0
 }
 
+func (tok Token) IsComparison() bool {
+	return EQL <= tok && tok <= GEQ || tok == IS
+}
+
+func (tok Token) IsLogicOperator() bool {
+	return EQL <= tok && tok <= GEQ || tok == IS || tok == LAND || tok == LOR
+}
+
 const (
 	LowestPrec  = 0 // non-operators
-	UnaryPrec   = 6
-	HighestPrec = 7
+	UnaryPrec   = 7
+	HighestPrec = 8
 )
 
 func (op Token) Precedence() int {
@@ -255,12 +291,14 @@ func (op Token) Precedence() int {
 		return 1
 	case LAND:
 		return 2
-	case EQL, NEQ, LSS, LEQ, GTR, GEQ, QES, DQES, IS:
+	case QES, DQS:
 		return 3
-	case ADD, SUB, OR, XOR:
+	case EQL, NEQ, LSS, LEQ, GTR, GEQ, IS:
 		return 4
-	case MUL, QUO, REM, SHL, SHR, AND, AND_NOT:
+	case ADD, SUB, OR, XOR:
 		return 5
+	case MUL, QUO, REM, SHL, SHR, AND, AND_NOT:
+		return 6
 	}
 	return LowestPrec
 }
