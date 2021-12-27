@@ -66,6 +66,8 @@ var simpleCases = []*parserInputCase{
 		in:  "#pub 'run' file '-o' \"${COVERAGE}/${base}.lcov.info\" \\\n \"--packages=.packages\" \"--report-on=lib\"",
 		out: "#pub 'run' file '-o' \"${COVERAGE}/${base}.lcov.info\" \"--packages=.packages\" \"--report-on=lib\"\n",
 	},
+	/* case 42 */ {in: "A = ['*.go']", out: "A = ['parser.go', 'parser_test.go', 'scanner.go', 'scanner_test.go']\n"},
+	/* case 44 */ {in: "A = [123, '*.go']", out: "A = [123, 'parser.go', 'parser_test.go', 'scanner.go', 'scanner_test.go']\n"},
 }
 
 func TestParseSimple(t *testing.T) {

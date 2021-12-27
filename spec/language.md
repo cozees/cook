@@ -1,3 +1,7 @@
+# Cook Language Specification
+
+This document regarding cook language specification.
+
 # Operand Value Syntax
 
 ```cook
@@ -11,7 +15,6 @@ false
 [1, 2, 3]               // array
 {1: 2, 3: 'text'}       // map or dictionary
 ['*.txt']               // glob pattern. result an array of file path
-{'*.txt'}               // similar to array but out map with key as folder and value is array of it child
 ```
 
 # Declare Variable Syntax

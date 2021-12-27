@@ -498,8 +498,12 @@ func (p *parser) parserArrayLiteral() ast.Node {
 	p.next()
 	var values []ast.Node
 	if p.cTok != token.RBRACK {
-		x, _ := p.parseOperand()
-		values = append(values, x)
+		x, tok := p.parseOperand()
+		if isGlob, nodes := parseArrayFile(x, tok); isGlob {
+			values = append(values, nodes...)
+		} else {
+			values = append(values, x)
+		}
 	} else {
 		values = make([]ast.Node, 0)
 	}
@@ -513,8 +517,12 @@ loop:
 			if p.cTok == token.RBRACK {
 				break loop
 			}
-			y, _ := p.parseOperand()
-			values = append(values, y)
+			y, tok := p.parseOperand()
+			if isGlob, nodes := parseArrayFile(y, tok); isGlob {
+				values = append(values, nodes...)
+			} else {
+				values = append(values, y)
+			}
 		}
 	}
 	if p.expect(token.RBRACK) != -1 {
@@ -973,4 +981,20 @@ func (p *parser) parseDeclareArgument() []*ast.Ident {
 		}
 	}
 	return args
+}
+
+func parseArrayFile(n ast.Node, tok token.Token) (isGlob bool, x []ast.Node) {
+	if tok == token.STRING {
+		bl := n.(*ast.BasicLit)
+		if mes, err := filepath.Glob(bl.Lit); err != nil || len(mes) == 0 {
+			return false, nil
+		} else {
+			for _, sf := range mes {
+				x = append(x, &ast.BasicLit{Lit: sf, Kind: token.STRING, Mark: bl.Mark})
+			}
+		}
+		return true, x
+	} else {
+		return false, nil
+	}
 }

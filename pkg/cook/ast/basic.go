@@ -579,9 +579,10 @@ func (ix *Index) evaluateInternal(ctx Context, setVal interface{}) (interface{},
 		switch vk {
 		case reflect.Slice:
 			if ik != reflect.Int64 {
-				return nil, 0, fmt.Errorf("index value is not integer")
+				return nil, 0, fmt.Errorf("%s: index value is not integer", ix.ErrPos())
 			} else if ind := int(i.(int64)); ind < 0 || ind >= vv.Len() {
-				return nil, 0, fmt.Errorf("index %d out of range, array length %d", ind, vv.Len())
+				fmt.Println(v)
+				return nil, 0, fmt.Errorf("%s: index %d out of range, array length %d", ix.ErrPos(), ind, vv.Len())
 			} else if setVal != nil {
 				vv.Index(ind).Set(reflect.ValueOf(setVal))
 				return nil, 0, nil
