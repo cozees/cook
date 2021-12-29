@@ -7,6 +7,7 @@ import (
 	"os"
 	"reflect"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -225,6 +226,29 @@ func GetFDModePerm(file string) (os.FileMode, error) {
 		return 0, err
 	}
 	return getWinModePerm(u, g, o)
+}
+
+type wrapStatInfo struct {
+	src     os.FileInfo
+	winMode os.FileMode
+}
+
+func (wsi *wrapStatInfo) Name() string       { return wsi.src.Name() }
+func (wsi *wrapStatInfo) Size() int64        { return wsi.Size() }
+func (wsi *wrapStatInfo) Mode() os.FileMode  { return (wsi.Mode() &^ os.ModePerm) | wsi.winMode }
+func (wsi *wrapStatInfo) ModTime() time.Time { return wsi.ModTime() }
+func (wsi *wrapStatInfo) IsDir() bool        { return wsi.src.IsDir() }
+func (wsi *wrapStatInfo) Sys() interface{}   { return wsi.src.Sys() }
+
+func GetFDStat(file string) (stat os.FileInfo, err error) {
+	if stat, err = os.Stat(file); err == nil {
+		var mode os.FileMode
+		if mode, err = GetFDModePerm(file); err == nil {
+			stat.Mode()
+		}
+		stat = &wrapStatInfo{src: stat, winMode: mode}
+	}
+	return stat, err
 }
 
 func getWinModePerm(u, g, o *windows.EXPLICIT_ACCESS) (os.FileMode, error) {

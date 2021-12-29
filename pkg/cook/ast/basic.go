@@ -10,8 +10,8 @@ import (
 	"reflect"
 	"strconv"
 
-	cookErrors "github.com/cozees/cook/pkg/cook/errors"
 	"github.com/cozees/cook/pkg/cook/token"
+	cookErrors "github.com/cozees/cook/pkg/errors"
 	"github.com/cozees/cook/pkg/runtime/args"
 )
 

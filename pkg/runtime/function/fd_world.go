@@ -49,3 +49,5 @@ func GetFDModePerm(file string) (os.FileMode, error) {
 		return stat.Mode().Perm(), nil
 	}
 }
+
+func GetFDStat(file string) (stat os.FileInfo, err error) { return os.Stat(file) }

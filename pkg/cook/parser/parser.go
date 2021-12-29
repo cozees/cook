@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/cozees/cook/pkg/cook/ast"
-	cookErrors "github.com/cozees/cook/pkg/cook/errors"
+	cookErrors "github.com/cozees/cook/pkg/errors"
 	"github.com/cozees/cook/pkg/cook/token"
 )
 
