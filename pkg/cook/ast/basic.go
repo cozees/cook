@@ -298,7 +298,18 @@ func (fb *Fallback) Evaluate(ctx Context) (v interface{}, k reflect.Kind, err er
 
 // SizeOf Evaluate return size of variable or literal value such as string, array, map
 func (sf *SizeOf) Evaluate(ctx Context) (v interface{}, k reflect.Kind, err error) {
-	if v, k, err = sf.X.Evaluate(ctx); err != nil {
+	if unary, ok := sf.X.(*Unary); ok && unary.Op == token.FILE {
+		// return the size of the file instead
+		if fp, k, err := unary.Evaluate(ctx); err != nil {
+			return nil, reflect.Invalid, err
+		} else if k != reflect.String {
+			return nil, reflect.Invalid, fmt.Errorf("%s is valid string filepath", unary)
+		} else if stat, err := os.Stat(fp.(string)); err != nil {
+			return int64(-1), reflect.Int64, nil
+		} else {
+			return stat.Size(), reflect.Int64, nil
+		}
+	} else if v, k, err = sf.X.Evaluate(ctx); err != nil {
 		return nil, 0, err
 	}
 	switch k {
@@ -753,6 +764,7 @@ func (c *Call) Evaluate(ctx Context) (interface{}, reflect.Kind, error) {
 			cmd.Stdin = os.Stdin
 			if !c.OutputResult {
 				cmd.Stdout = os.Stdout
+				cmd.Stderr = os.Stderr
 				if err = cmd.Run(); err != nil {
 					return nil, 0, err
 				} else {
@@ -973,6 +985,9 @@ func (un *Unary) Evaluate(ctx Context) (interface{}, reflect.Kind, error) {
 		default:
 			return v != nil, reflect.Bool, nil
 		}
+	case un.Op == token.FILE:
+		// sizeof expression must check if node is unary and it's indicate file type Operator
+		return v.(string), reflect.String, nil
 	}
 	return nil, reflect.Invalid, fmt.Errorf("unary operator %s is not supported on value %v`", un.Op, v)
 }

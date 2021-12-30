@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 
 	"github.com/cozees/cook/pkg/cook/ast"
-	cookErrors "github.com/cozees/cook/pkg/errors"
 	"github.com/cozees/cook/pkg/cook/token"
+	cookErrors "github.com/cozees/cook/pkg/errors"
 )
 
 type Parser interface {
@@ -354,7 +354,7 @@ func (p *parser) parseBinaryExpr(isChaining bool, priority int) ast.Node {
 
 func (p *parser) parseUnaryExpr() (x ast.Node) {
 	switch p.cTok {
-	case token.ADD, token.SUB, token.NOT, token.XOR:
+	case token.ADD, token.SUB, token.NOT, token.XOR, token.FILE:
 		offs, op := p.cOffs, p.cTok
 		p.next()
 		opr, _ := p.parseOperand()
@@ -366,7 +366,12 @@ func (p *parser) parseUnaryExpr() (x ast.Node) {
 	case token.SIZEOF:
 		offs := p.cOffs
 		p.next()
-		opr, _ := p.parseOperand()
+		var opr ast.Node
+		if p.cTok == token.FILE {
+			opr = p.parseUnaryExpr()
+		} else {
+			opr, _ = p.parseOperand()
+		}
 		x = &ast.SizeOf{
 			Base: &ast.Base{Offset: offs, File: p.tfile},
 			X:    opr,

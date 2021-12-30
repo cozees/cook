@@ -218,6 +218,8 @@ revisit:
 			tok = token.AT
 		case '#':
 			tok = token.HASH
+		case '~':
+			tok = token.FILE
 		case '$':
 			tok = token.VAR
 		case '?':

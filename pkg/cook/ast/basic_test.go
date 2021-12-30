@@ -26,6 +26,7 @@ var bl1, bl2 = &BasicLit{Lit: "true", Kind: token.BOOLEAN}, &BasicLit{Lit: "fals
 var sl1, sl2 = &BasicLit{Lit: "98", Kind: token.STRING}, &BasicLit{Lit: "sample", Kind: token.STRING}
 var keys []Node
 var lmaps = make(map[interface{}]interface{})
+var basicSize int64
 
 func init() {
 	for i := 1; i < 9; i++ {
@@ -40,6 +41,11 @@ func init() {
 	ctx.SetVariable("var6", map[interface{}]interface{}{1.1: "xyz", "abc": int64(873)}, reflect.String, nil)
 	ctx.SetVariable("var7", []interface{}{int64(12), int64(21), 5.2, 29.1, true, false, "98", "sample"}, reflect.Slice, nil)
 	ctx.SetVariable("var8", lmaps, reflect.Map, nil)
+	stat, err := os.Stat("basic.go")
+	if err != nil {
+		panic(err)
+	}
+	basicSize = stat.Size()
 }
 
 type WrapHelper struct {
@@ -330,57 +336,69 @@ var exprCases = []*ExprAstTestCase{
 		value: int64(13),
 		kind:  reflect.Int64,
 	},
-	{ // case 47
+	{ // case 48
 		node:  &IncDec{X: fl1, Op: token.DEC},
 		value: 4.2,
 		kind:  reflect.Float64,
 	},
-	{ // case 48
+	{ // case 49
 		node:  &Binary{L: il1, Op: token.ADD, R: fl1},
 		value: 17.2,
 		kind:  reflect.Float64,
 	},
-	{ // case 49
+	{ // case 50
 		node:  &Binary{L: il1, Op: token.ADD, R: il2},
 		value: int64(33),
 		kind:  reflect.Int64,
 	},
-	{ // case 50
+	{ // case 51
 		node:  &Binary{L: il1, Op: token.GEQ, R: il2},
 		value: false,
 		kind:  reflect.Bool,
 	},
-	{ // case 51
+	{ // case 52
 		node:  &Binary{L: il2, Op: token.GEQ, R: fl1},
 		value: true,
 		kind:  reflect.Bool,
 	},
-	{ // case 52
+	{ // case 53
 		node:  &Binary{L: sl1, Op: token.GEQ, R: fl1},
 		isErr: true,
 	},
-	{ // case 53
+	{ // case 54
 		node:  &Binary{L: bl1, Op: token.ADD, R: sl1},
 		value: "true98",
 		kind:  reflect.String,
 	},
-	{ // case 54
+	{ // case 55
 		node:  &Binary{L: bl1, Op: token.MUL, R: sl1},
 		isErr: true,
 	},
-	{ // case 55, 12 * 29.1 + 5.2
+	{ // case 56, 12 * 29.1 + 5.2
 		node:  &Binary{L: &Binary{L: il1, Op: token.MUL, R: fl2}, Op: token.ADD, R: fl1},
 		value: (float64(12) * 29.1) + 5.2,
 		kind:  reflect.Float64,
 	},
-	{ // case 56
+	{ // case 57
 		node:  &Binary{L: bl1, Op: token.LAND, R: &Binary{L: il1, Op: token.GTR, R: fl2}},
 		value: false,
 		kind:  reflect.Bool,
 	},
+	{ // case 58
+		node:  &SizeOf{X: &Unary{Op: token.FILE, X: &BasicLit{Lit: "basic.go", Kind: token.STRING}}},
+		value: basicSize,
+		kind:  reflect.Int64,
+	},
+	{ // case 59
+		node:  &SizeOf{X: &Unary{Op: token.FILE, X: &BasicLit{Lit: "nowhere", Kind: token.STRING}}},
+		value: int64(-1),
+		kind:  reflect.Int64,
+	},
 }
 
 func TestExpression(t *testing.T) {
+	// exprCases is initialize before init function therefore basicSize is always 0
+	exprCases[57].value = basicSize
 	for i, tc := range exprCases {
 		t.Logf("TestBasicLit case #%d", i+1)
 		v, k, err := tc.node.Evaluate(ctx)

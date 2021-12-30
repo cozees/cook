@@ -34,6 +34,8 @@ data1 data2 data3
 1 https://www.sqlite.org/2020/sqlite-amalgamation-3320000.zip
 2 https://www.sqlite.org/2015/sqlite-amalgamation-3090200.zip
 3 https://www.sqlite.org/2012/sqlite-amalgamation-3010201.zip
+189 magic number
+256 magic number
 `,
 	},
 	{

@@ -64,6 +64,7 @@ const (
 	VAR            // $
 	QES            // ?
 	DQS            // ??
+	FILE           // ~
 
 	LBRACK // [
 	LBRACE // {
@@ -156,6 +157,7 @@ var tokens = [...]string{
 	VAR:            "$",
 	QES:            "?",
 	DQS:            "??",
+	FILE:           "~",
 	LBRACK:         "[",
 	LBRACE:         "{",
 	RBRACK:         "]",

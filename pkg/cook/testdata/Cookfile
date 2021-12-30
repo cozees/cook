@@ -53,6 +53,12 @@ case1:
     for i, dl in SQLITES {
         @print "-e" i dl >> FILE1
     }
+    if sizeof ~"cook_test.go" >= 0 {
+        @print "-e" 189 "magic number" >> FILE1
+    }
+    if sizeof ~"nowhere" == -1 {
+        @print "-e" 256 "magic number" >> FILE1
+    }
 
 case2:
     @print "-e" "" >> FILE2

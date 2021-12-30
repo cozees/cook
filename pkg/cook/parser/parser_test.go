@@ -68,9 +68,10 @@ var simpleCases = []*parserInputCase{
 	},
 	/* case 42 */ {in: "A = ['*.go']", out: "A = ['parser.go', 'parser_test.go', 'scanner.go', 'scanner_test.go']\n"},
 	/* case 44 */ {in: "A = [123, '*.go']", out: "A = [123, 'parser.go', 'parser_test.go', 'scanner.go', 'scanner_test.go']\n"},
+	/* case 45 */ {in: "if sizeof ~'file' == -1 { @print 123 \n }", out: "if sizeof ~'file' == -1 {\n@print 123\n}\n"},
 }
 
-func TestParseSimple(t *testing.T) {
+func TestParseSimpleStatement(t *testing.T) {
 	for i, tc := range simpleCases {
 		t.Logf("TestParseSimple case #%d", i+1)
 		p := NewParser()
@@ -96,6 +97,9 @@ var unaryTestCases = []*parserInputCase{
 	/* case 9 */ {in: "float(12)", out: "float(12)"},
 	/* case 10 */ {in: "boolean('true')", out: "boolean('true')"},
 	/* case 11 */ {in: "string(12)", out: "string(12)"},
+	/* case 12 */ {in: "~a", out: "~a"},
+	/* case 12 */ {in: "~'file/text.txt'", out: "~'file/text.txt'"},
+	/* case 12 */ {in: "sizeof ~'file/text.txt'", out: "sizeof ~'file/text.txt'"},
 }
 
 func TestParseUnary(t *testing.T) {
