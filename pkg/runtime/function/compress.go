@@ -17,6 +17,10 @@ import (
 	"github.com/cozees/cook/pkg/runtime/args"
 )
 
+func AllCXAFlags() []*args.Flags {
+	return []*args.Flags{compressFlags, extractFlags}
+}
+
 type stateEntry struct {
 	stat os.FileInfo
 }
@@ -45,16 +49,18 @@ type compressOptions struct {
 	Out      string `flag:"out"`
 	Override bool   `flag:"override"`
 	Mode     string `flag:"mode"`
+	Verbose  bool   `flag:"verbose"`
 	Args     []string
 
 	// internal state
-	ext     string
-	needExt bool
-	mode    os.FileMode
-	handler func(w io.WriteCloser, opts *compressOptions) (interface{}, error)
+	verboseIO io.Writer
+	ext       string
+	needExt   bool
+	mode      os.FileMode
+	handler   func(w io.WriteCloser, opts *compressOptions) (interface{}, error)
 }
 
-func (co *compressOptions) validateCompress() error {
+func (co *compressOptions) validate() error {
 	if len(co.Args) == 0 {
 		return errors.New("compress no input")
 	} else if len(co.Args) > 1 {
@@ -64,10 +70,17 @@ func (co *compressOptions) validateCompress() error {
 	co.needExt = false
 	m, err := filepath.Glob(co.Args[0])
 	if co.Out == "" {
-		if err == nil {
+		if err == nil && (len(m) >= 1 && m[0] != co.Args[0]) {
 			return errors.New("file name is require when input is a glob pattern")
 		}
 		co.Out = co.Args[0]
+		if co.Out == "." || co.Out == ".." || co.Out == "./" || co.Out == "../" {
+			if absOut, err := filepath.Abs(co.Out); err != nil {
+				return err
+			} else {
+				co.Out = filepath.Base(absOut)
+			}
+		}
 		co.needExt = true
 	}
 	istat, serr := os.Stat(co.Args[0])
@@ -90,6 +103,10 @@ func (co *compressOptions) validateCompress() error {
 		}
 	}
 
+	if co.Verbose {
+		co.verboseIO = os.Stdout
+	}
+
 	switch co.Kind {
 	case "gzip":
 		if !co.Tar && ((err == nil && (len(m) >= 1 && m[0] != co.Args[0])) || istat.IsDir()) {
@@ -101,7 +118,7 @@ func (co *compressOptions) validateCompress() error {
 		if co.Tar {
 			return errors.New("zip not unsupported to combine with tarball (tar)")
 		}
-		co.ext = "zip"
+		co.ext = ".zip"
 		co.handler = zipFileDir
 	default:
 		return fmt.Errorf("unsupported compression type %s", co.Kind)
@@ -116,6 +133,7 @@ const (
 	tarDesc         = `Tell compressor to output as tar file`
 	modeDesc        = `providing a unix like permission to apply to the output file. By default, the permission is set to 0777.`
 	overrideDesc    = `Tell compressor to override the output file if its exist`
+	verboseDesc     = `Tell compressor to display each compressed file or folder`
 	compressOutDesc = `Tell compressor where to produce the output result. It is
 					   file name or path to the output file.`
 )
@@ -127,11 +145,13 @@ var compressFlags = &args.Flags{
 		{Short: "t", Long: "tar", Description: tarDesc},
 		{Short: "f", Long: "override", Description: overrideDesc},
 		{Short: "m", Long: "mode", Description: modeDesc},
+		{Short: "v", Long: "verbose", Description: verboseDesc},
 	},
 	Result:      reflect.TypeOf((*compressOptions)(nil)).Elem(),
 	FuncName:    "compress",
 	Example:     "@compress -a gzip --tar folder",
-	ShortDesc:   "Compress folder or file.",
+	ShortDesc:   "Compress/Archive folder or file.",
+	Usage:       "@compress [-v] [-m 0700] [-f] [--tar] [-o DIRECTORY|FILE] [-k algo] FILE",
 	Description: compressorDesc,
 }
 
@@ -181,6 +201,17 @@ func listFileDir(opts *compressOptions, fn listFileDirFunc) error {
 	return nil
 }
 
+func logTarVerbose(w io.Writer, kind string, args ...interface{}) {
+	if kind != "" {
+		kind = "tar." + kind
+	} else {
+		kind = "tar"
+	}
+	args = append(args[:2], args[1:]...)
+	args[1] = kind
+	fmt.Fprintf(w, "%s (%s) %s: %s\n", args...)
+}
+
 func tarFileDir(w io.WriteCloser, opts *compressOptions) (v interface{}, err error) {
 	tw := tar.NewWriter(w)
 	defer func() { err = handleClose(tw, err) }()
@@ -195,7 +226,11 @@ func tarFileDir(w io.WriteCloser, opts *compressOptions) (v interface{}, err err
 			Size:    stat.Size(),
 			ModTime: stat.ModTime(),
 		}
+
 		if d.IsDir() {
+			if opts.verboseIO != nil {
+				logTarVerbose(opts.verboseIO, opts.Kind, "archive", "folder", path)
+			}
 			header.Typeflag = tar.TypeDir
 			return tw.WriteHeader(header)
 		} else {
@@ -205,6 +240,9 @@ func tarFileDir(w io.WriteCloser, opts *compressOptions) (v interface{}, err err
 			} else if file, err := os.Open(path); err != nil {
 				return err
 			} else {
+				if opts.verboseIO != nil {
+					logTarVerbose(opts.verboseIO, opts.Kind, "archive", "file", path)
+				}
 				defer file.Close()
 				_, err = io.Copy(tw, file)
 				return err
@@ -233,6 +271,9 @@ func gzipFileDir(w io.WriteCloser, opts *compressOptions) (v interface{}, err er
 				if f, err = os.Open(path); err != nil {
 					return err
 				} else {
+					if opts.verboseIO != nil {
+						fmt.Fprintf(opts.verboseIO, "   gzip file: %s\n", path)
+					}
 					defer func() { rerr = handleClose(f, rerr) }()
 					_, err = io.Copy(gw, f)
 					return err
@@ -274,6 +315,9 @@ func zipFileDir(w io.WriteCloser, opts *compressOptions) (v interface{}, err err
 			} else if f, err := os.Open(path); err != nil {
 				return err
 			} else {
+				if opts.verboseIO != nil {
+					fmt.Fprintf(opts.verboseIO, "   zip file: %s\n", path)
+				}
 				defer f.Close()
 				_, err = io.Copy(hw, f)
 				return err
@@ -284,7 +328,7 @@ func zipFileDir(w io.WriteCloser, opts *compressOptions) (v interface{}, err err
 
 var compressFn = NewBaseFunction(compressFlags, func(f Function, i interface{}) (v interface{}, err error) {
 	opts := i.(*compressOptions)
-	if err = opts.validateCompress(); err != nil {
+	if err = opts.validate(); err != nil {
 		return nil, err
 	}
 	// open file
@@ -306,7 +350,7 @@ var compressFn = NewBaseFunction(compressFlags, func(f Function, i interface{}) 
 	}
 	defer func() { err = file.Close() }()
 	return opts.handler(file, opts)
-}, "")
+})
 
 type extractOptions struct {
 	Out     string `flag:"out"`
@@ -324,8 +368,8 @@ const (
 					 It support format 7z(lzma), xz, zip, gzip, bzip2, tar, rar.`
 	extractOutDesc = `Tell extractor where to extract file and/or folder to. If folder is not exist
 					  extractor will create it.`
-	verboseDesc = `Tell extractor to display each extracted file or folder`
-	modeXDesc   = `override/provide permission to all file or folder extracted from compress/archive file.
+	verboseXDesc = `Tell extractor to display each extracted file or folder`
+	modeXDesc    = `override/provide permission to all file or folder extracted from compress/archive file.
 				   By default, it apply the permission based on the permission available in the archive/compressed file
 				   however if there is no permisson available then 0777 permission is used.`
 )
@@ -334,12 +378,13 @@ var extractFlags = &args.Flags{
 	Flags: []*args.Flag{
 		{Short: "o", Long: "out", Description: extractOutDesc},
 		{Short: "m", Long: "mode", Description: modeXDesc},
-		{Short: "v", Long: "verbose", Description: verboseDesc},
+		{Short: "v", Long: "verbose", Description: verboseXDesc},
 	},
 	Result:      reflect.TypeOf((*extractOptions)(nil)).Elem(),
 	FuncName:    "extract",
 	Example:     "@extract sample.tar.gz",
 	ShortDesc:   "Decompress the data.",
+	Usage:       "@extract [-v] [-m 0700] [-o DIRECTORY|FILE] FILE",
 	Description: extractorDesc,
 }
 
@@ -363,6 +408,9 @@ func extractZipFile(reader io.ReaderAt, size int64, opts *extractOptions) (err e
 		if zf.FileInfo().IsDir() {
 			// Make Folder
 			if err = os.MkdirAll(dest, mode); err != nil {
+				if opts.verboseIO != nil {
+					fmt.Fprintf(opts.verboseIO, "   extract folder: %s\n", dest)
+				}
 				return err
 			}
 			continue
@@ -384,6 +432,9 @@ func extractZipFile(reader io.ReaderAt, size int64, opts *extractOptions) (err e
 			return err
 		}
 
+		if opts.verboseIO != nil {
+			fmt.Fprintf(opts.verboseIO, "   extract file: %s\n", dest)
+		}
 		_, err = io.Copy(of, rc)
 
 		of.Close()
@@ -428,6 +479,9 @@ func extractGzipFile(r io.ReadSeeker, opts *extractOptions) (err error) {
 		if err != nil {
 			return err
 		}
+		if opts.verboseIO != nil {
+			fmt.Fprintf(opts.verboseIO, "   extract file: %s\n", dest)
+		}
 		defer func() { err = handleClose(of, err) }()
 		_, err = io.Copy(of, gr)
 		return err
@@ -445,10 +499,16 @@ func extractTarFile(r io.Reader, opts *extractOptions) (err error) {
 			if err = os.MkdirAll(dirOut, opts.mode); err != nil {
 				return err
 			}
+			if opts.verboseIO != nil {
+				fmt.Fprintf(opts.verboseIO, "   extract folder: %s\n", dirOut)
+			}
 		case tar.TypeReg:
 			fout := filepath.Join(opts.Out, header.Name)
 			if of, err = os.OpenFile(fout, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, opts.mode); err != nil {
 				return err
+			}
+			if opts.verboseIO != nil {
+				fmt.Fprintf(opts.verboseIO, "   extract file: %s\n", fout)
 			}
 			if _, err := io.Copy(of, tr); err != nil {
 				of.Close()
@@ -532,7 +592,7 @@ var extractFn = NewBaseFunction(extractFlags, func(f Function, i interface{}) (i
 		}
 	}
 	return nil, nil
-}, "")
+})
 
 func init() {
 	registerFunction(compressFn)

@@ -10,7 +10,7 @@ Although all Cook functionality is being test on Linux, MacOS and Windows, it is
 
 # Languages
 
-More about Cook, check language [specification](spec/language.md).
+More about Cook, check language [specification](spec/language.md). For built-in function visit [here](docs/functions/all.md)
 
 # Usage
 

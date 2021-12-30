@@ -13,6 +13,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRidiculous(t *testing.T) {
+	// -v -k gzip -t .
+	fn := GetFunction("compress")
+	_, err := fn.Apply([]*args.FunctionArg{
+		{Val: "-v", Kind: reflect.String},
+		{Val: "-k", Kind: reflect.String},
+		{Val: "gzip", Kind: reflect.String},
+		{Val: "-t", Kind: reflect.String},
+		{Val: ".", Kind: reflect.String},
+	})
+	require.NoError(t, err)
+}
+
 func verifyFileContent(t *testing.T, f1, f2 string) {
 	cf1, err := ioutil.ReadFile(f1)
 	require.NoError(t, err)

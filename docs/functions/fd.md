@@ -22,6 +22,7 @@ Remove one or more files and directory in the hierarchy. If the given path is a 
 | Options/Flag | Default | Description |
 | --- | --- | --- |
 | -r, --recursive | false | Remove all file or directory in hierarchy of the given directory. |
+| -s, --silence | false | Tell the function to return without reporting error. |
 
 Example:
 
@@ -44,7 +45,7 @@ Create one or multiple directories. The function utilize linux permission mode s
 | Options/Flag | Default | Description |
 | --- | --- | --- |
 | -p, --recursive | false | Create directories recursively if any directory in the given path is not exist.        By default, if permission mode is not given then a permission 740 is used. |
-| --m, --mode |  | Set directory permission. The linux permission syntax is required in order provide the permission other than default permission 740. |
+| -m, --mode |  | Set directory permission. The linux permission syntax is required in order provide the permission other than default permission 740. |
 
 Example:
 

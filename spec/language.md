@@ -220,6 +220,8 @@ Special exception case when writting call argument.
 
 Cook function is similar other language except it does not allow use to specify explicitly return type or argument type since Cook is pretty much a dynamic type where a variable can hold any type value.
 
+For built-in function document visit [here](docs/functions/all.md)
+
 ```cook
 // function lamda syntax
 sample(a, b) => a + b

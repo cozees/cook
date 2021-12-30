@@ -23,15 +23,17 @@ type functionGroup struct {
 }
 
 const (
-	stringDesc = `String functions provide several pre-define functionality that can be used to manipulate the string.`
-	httpDesc   = `Http functions provide pre-define function to send get, head, options, post, patch, put and delete request to the server.`
-	logDesc    = `Log functions provide several pre-define functionality print or format variable to the standard output.`
-	pathDesc   = `Path functions provide several pre-define functionality that can be use to manipulate or extract metadata from file path.`
-	fdDesc     = `File and Directory functions provide several pre-define functionality create, delete or modified ones or more files and directories.`
+	stringDesc   = `String functions provide several pre-define functionality that can be used to manipulate the string.`
+	compressDesc = `Compress, Extract or Archive functions provide several pre-define functionality that can be used to archive, compress or extract of file type tarbal, gzip, zip.`
+	httpDesc     = `Http functions provide pre-define function to send get, head, options, post, patch, put and delete request to the server.`
+	logDesc      = `Log functions provide several pre-define functionality print or format variable to the standard output.`
+	pathDesc     = `Path functions provide several pre-define functionality that can be use to manipulate or extract metadata from file path.`
+	fdDesc       = `File and Directory functions provide several pre-define functionality create, delete or modified ones or more files and directories.`
 )
 
 var functions = []*functionGroup{
 	{Name: "String Functions", File: "strings", Flags: function.AllStringFlags, Description: stringDesc},
+	{Name: "Compress/Archive Functions", File: "compress", Flags: function.AllCXAFlags, Description: compressDesc},
 	{Name: "Http Functions", File: "http", Flags: function.AllHttpFlags, Description: httpDesc},
 	{Name: "Log Functions", File: "log", Flags: function.AllLogFlags, Description: logDesc},
 	{Name: "Path Functions", File: "path", Flags: function.AllPathFlags, Description: pathDesc},
