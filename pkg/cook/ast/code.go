@@ -94,6 +94,7 @@ func (ix *Index) String() string               { return codeOf(ix) }
 func (sv *SubValue) String() string            { return codeOf(sv) }
 func (r *Interval) String() string             { return codeOf(r) }
 func (c *Call) String() string                 { return codeOf(c) }
+func (pp *Pipe) String() string                { return codeOf(pp) }
 func (rf *ReadFrom) String() string            { return codeOf(rf) }
 func (rt *RedirectTo) String() string          { return codeOf(rt) }
 func (p *Paren) String() string                { return codeOf(p) }
@@ -274,6 +275,14 @@ func (c *Call) Visit(cb CodeBuilder) {
 		} else {
 			arg.Visit(cb)
 		}
+	}
+}
+
+func (pp *Pipe) Visit(cb CodeBuilder) {
+	pp.X.Visit(cb)
+	if pp.Y != nil {
+		cb.WriteString(" | ")
+		pp.Y.Visit(cb)
 	}
 }
 

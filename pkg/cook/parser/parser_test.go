@@ -67,8 +67,10 @@ var simpleCases = []*parserInputCase{
 		out: "#pub 'run' file '-o' \"${COVERAGE}/${base}.lcov.info\" \"--packages=.packages\" \"--report-on=lib\"\n",
 	},
 	/* case 42 */ {in: "A = ['*.go']", out: "A = ['parser.go', 'parser_test.go', 'scanner.go', 'scanner_test.go']\n"},
-	/* case 44 */ {in: "A = [123, '*.go']", out: "A = [123, 'parser.go', 'parser_test.go', 'scanner.go', 'scanner_test.go']\n"},
-	/* case 45 */ {in: "if sizeof ~'file' == -1 { @print 123 \n }", out: "if sizeof ~'file' == -1 {\n@print 123\n}\n"},
+	/* case 43 */ {in: "A = [123, '*.go']", out: "A = [123, 'parser.go', 'parser_test.go', 'scanner.go', 'scanner_test.go']\n"},
+	/* case 44 */ {in: "if sizeof ~'file' == -1 { @print 123 \n }", out: "if sizeof ~'file' == -1 {\n@print 123\n}\n"},
+	/* case 45 */ {in: "@print 45 | @print 'text'", out: "@print 45 | @print 'text'\n"},
+	/* case 46 */ {in: "@print 45 | @print 'text' >> FILE", out: "@print 45 | @print 'text' >> FILE\n"},
 }
 
 func TestParseSimpleStatement(t *testing.T) {

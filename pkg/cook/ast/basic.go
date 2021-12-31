@@ -146,7 +146,7 @@ type (
 		Step     Node
 	}
 
-	// A node represent call expression or statement
+	// A node represent call expression
 	Call struct {
 		*Base
 		Kind         token.Token
@@ -154,6 +154,17 @@ type (
 		Name         string
 		OutputResult bool
 		FuncLit      *Function
+
+		// use internally for share argument with pipe expression
+		pipeCmdArgs     string
+		pipeBuiltInArgs *args.FunctionArg
+	}
+
+	// A node represent pipe expression
+	Pipe struct {
+		*Base
+		X *Call
+		Y Node
 	}
 
 	// A node represent redirect read file expression <
@@ -761,7 +772,18 @@ func (c *Call) Evaluate(ctx Context) (interface{}, reflect.Kind, error) {
 				return nil, 0, err
 			}
 			cmd.Dir = dir
-			cmd.Stdin = os.Stdin
+			if c.pipeCmdArgs != "" {
+				if w, err := cmd.StdinPipe(); err != nil {
+					return nil, 0, err
+				} else if _, err = w.Write([]byte(c.pipeCmdArgs)); err != nil {
+					w.Close()
+					return nil, 0, err
+				} else if err = w.Close(); err != nil {
+					return nil, 0, err
+				}
+			} else {
+				cmd.Stdin = os.Stdin
+			}
 			if !c.OutputResult {
 				cmd.Stdout = os.Stdout
 				cmd.Stderr = os.Stderr
@@ -851,7 +873,52 @@ func (c *Call) funcArgs(ctx Context) ([]*args.FunctionArg, error) {
 			}
 		}
 	}
+	if c.pipeBuiltInArgs != nil {
+		sargs = append(sargs, c.pipeBuiltInArgs)
+	}
 	return sargs, nil
+}
+
+func (c *Call) setPipeArgument(ctx Context, v interface{}, k reflect.Kind) (err error) {
+	if c.Kind == token.HASH {
+		if c.pipeCmdArgs, err = convertToString(ctx, v, k); err != nil {
+			return err
+		}
+	} else {
+		c.pipeBuiltInArgs = &args.FunctionArg{Val: v, Kind: k}
+	}
+	return nil
+}
+
+func (pp *Pipe) Evaluate(ctx Context) (interface{}, reflect.Kind, error) {
+	pp.X.OutputResult = true
+	if result, kind, err := pp.X.Evaluate(ctx); err != nil {
+		return nil, 0, err
+	} else if pp.Y != nil {
+		if c, ok := pp.Y.(*Call); ok {
+			if err = c.setPipeArgument(ctx, result, kind); err != nil {
+				return nil, 0, err
+			}
+			c.OutputResult = true
+			return c.Evaluate(ctx)
+		} else if p, ok := pp.Y.(*Pipe); ok {
+			if err = p.X.setPipeArgument(ctx, result, kind); err != nil {
+				return nil, 0, err
+			}
+			return p.Evaluate(ctx)
+		} else if rd, ok := pp.Y.(*RedirectTo); ok {
+			if c, ok := rd.Caller.(*Call); ok {
+				if err = c.setPipeArgument(ctx, result, kind); err != nil {
+					return nil, 0, err
+				}
+				c.OutputResult = true
+				return rd.Evaluate(ctx)
+			}
+		}
+		panic("cook internal error: Pipe support only call, redirect and pipe expression itself")
+	} else {
+		return result, kind, nil
+	}
 }
 
 // ReadFrom Evaluate return content of a file

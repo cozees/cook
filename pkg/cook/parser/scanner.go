@@ -233,7 +233,11 @@ revisit:
 		case '%':
 			tok = s.ternary(s.ch == '=', token.REM_ASSIGN, token.REM)
 		case '|':
-			tok = s.ternary(s.ch == '|', token.LOR, s.ternary(s.ch == '=', token.OR_ASSIGN, token.OR))
+			if s.mode.isMode(scanArgument) {
+				tok = token.PIPE
+			} else {
+				tok = s.ternary(s.ch == '|', token.LOR, s.ternary(s.ch == '=', token.OR_ASSIGN, token.OR))
+			}
 		case '=':
 			tok = s.ternary(s.ch == '=', token.EQL, s.ternary(s.ch == '>', token.LAMBDA, token.ASSIGN))
 		case '+':

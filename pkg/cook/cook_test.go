@@ -36,6 +36,7 @@ data1 data2 data3
 3 https://www.sqlite.org/2012/sqlite-amalgamation-3010201.zip
 189 magic number
 256 magic number
+text 83 38
 `,
 	},
 	{

@@ -59,6 +59,7 @@ case1:
     if sizeof ~"nowhere" == -1 {
         @print "-e" 256 "magic number" >> FILE1
     }
+    @print '-e' '-n' 38 | @print '-e' '-n' 83 | @print '-e' 'text' >> FILE1
 
 case2:
     @print "-e" "" >> FILE2

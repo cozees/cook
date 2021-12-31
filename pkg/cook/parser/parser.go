@@ -139,7 +139,7 @@ nextFile:
 		case token.IF:
 			p.parseIf(false, nil)
 		case token.AT, token.HASH:
-			p.parseCallReference(false)
+			p.parseCallReference(false, nil)
 		case token.EXIT:
 			offs := p.cOffs
 			if code := p.parseBinaryExpr(false, token.LowestPrec+1); code != nil {
@@ -281,7 +281,7 @@ func (p *parser) parseAssignStatement(settableNode ast.SettableNode) {
 		}
 		if p.nTok == token.AT || p.nTok == token.HASH {
 			p.next()
-			assignStmt.Value = p.parseCallReference(true)
+			assignStmt.Value = p.parseCallReference(true, nil)
 		} else {
 			assignStmt.Value = p.parseBinaryExpr(false, token.LowestPrec+1)
 		}
@@ -684,7 +684,7 @@ func (p *parser) parseBlock(inForLoop bool, block *ast.BlockStatement) bool {
 			}
 		case token.AT, token.HASH:
 			// parse invocation command call
-			p.parseCallReference(false)
+			p.parseCallReference(false, nil)
 		case token.FOR:
 			p.parseForLoop(inForLoop)
 		case token.IF:
@@ -868,7 +868,7 @@ func (p *parser) parseTransformation() ast.Node {
 	return nil
 }
 
-func (p *parser) parseCallReference(assign bool) ast.Node {
+func (p *parser) parseCallReference(assign bool, prev *ast.Call) ast.Node {
 	callOffs := p.cOffs
 	kind := p.cTok
 	p.next()
@@ -878,6 +878,7 @@ func (p *parser) parseCallReference(assign bool) ast.Node {
 	}
 	var args []ast.Node
 	var redirect *ast.RedirectTo
+
 	for p.cTok != token.LF && p.cTok != token.EOF {
 		switch p.cTok {
 		case token.WRITE_TO, token.APPEND_TO:
@@ -902,6 +903,8 @@ func (p *parser) parseCallReference(assign bool) ast.Node {
 				Base: &ast.Base{Offset: offs, File: p.tfile},
 				File: x,
 			})
+		case token.PIPE:
+			goto end
 		default:
 			x, _ := p.parseOperand()
 			if redirect != nil {
@@ -911,19 +914,28 @@ func (p *parser) parseCallReference(assign bool) ast.Node {
 			}
 		}
 	}
-	var node ast.Node
-	if p.cTok == token.LF {
+end:
+	if tok := p.cTok; p.cTok == token.LF || p.cTok == token.PIPE {
+		var node ast.Node
 		node = &ast.Call{
 			Base: &ast.Base{Offset: callOffs, File: p.tfile},
 			Kind: kind,
 			Name: name,
 			Args: args,
 		}
+
 		p.next()
-		if redirect != nil {
+		if tok == token.PIPE {
+			nextNode := p.parseCallReference(true, node.(*ast.Call))
+			node = &ast.Pipe{
+				X: node.(*ast.Call),
+				Y: nextNode,
+			}
+		} else if redirect != nil {
 			redirect.Caller = node
 			node = redirect
 		}
+
 		if assign {
 			return node
 		} else {

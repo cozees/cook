@@ -56,15 +56,16 @@ const (
 	LEQ            // <=
 	GTR            // >
 	GEQ            // >=
-	READ_FROM      // <
-	WRITE_TO       // >
-	APPEND_TO      // >>
+	READ_FROM      // <, it work exclusively in argument scanning
+	WRITE_TO       // >, it work exclusively in argument scanning
+	APPEND_TO      // >>, it work exclusively in argument scanning
 	AT             // @
 	HASH           // #
 	VAR            // $
 	QES            // ?
 	DQS            // ??
 	FILE           // ~
+	PIPE           // |, it work exclusively in argument scanning
 
 	LBRACK // [
 	LBRACE // {
@@ -158,6 +159,7 @@ var tokens = [...]string{
 	QES:            "?",
 	DQS:            "??",
 	FILE:           "~",
+	PIPE:           "|",
 	LBRACK:         "[",
 	LBRACE:         "{",
 	RBRACK:         "]",

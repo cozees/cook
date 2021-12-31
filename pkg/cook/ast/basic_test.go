@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var ctx = &xContext{scope: &xScope{vars: make(map[string]*ivar)}}
+var ctx = NewCook().(*cook).renewContext()
 var dummyBase = &Base{
 	Offset: 0,
 	File:   token.NewFile("", 100),
@@ -27,6 +27,7 @@ var sl1, sl2 = &BasicLit{Lit: "98", Kind: token.STRING}, &BasicLit{Lit: "sample"
 var keys []Node
 var lmaps = make(map[interface{}]interface{})
 var basicSize int64
+var echo = &BasicLit{Lit: "-e", Kind: token.STRING}
 
 func init() {
 	for i := 1; i < 9; i++ {
@@ -393,6 +394,25 @@ var exprCases = []*ExprAstTestCase{
 		node:  &SizeOf{X: &Unary{Op: token.FILE, X: &BasicLit{Lit: "nowhere", Kind: token.STRING}}},
 		value: int64(-1),
 		kind:  reflect.Int64,
+	},
+	{ // case 60
+		node: &Pipe{
+			X: &Call{Kind: token.AT, Name: "print", Args: []Node{echo, &BasicLit{Lit: "text", Kind: token.STRING}}},
+			Y: &Pipe{
+				X: &Call{Kind: token.AT, Name: "print", Args: []Node{echo, &BasicLit{Lit: "121", Kind: token.INTEGER}}},
+				Y: &Call{Kind: token.AT, Name: "print", Args: []Node{echo, &BasicLit{Lit: "9.1", Kind: token.FLOAT}}},
+			},
+		},
+		value: "9.1 121 text\n\n\n",
+		kind:  reflect.String,
+	},
+	{ // case 61
+		node: &Pipe{
+			X: &Call{Kind: token.AT, Name: "print", Args: []Node{echo, &BasicLit{Lit: "text", Kind: token.STRING}}},
+			Y: &Call{Kind: token.AT, Name: "print", Args: []Node{echo, &BasicLit{Lit: "3915", Kind: token.INTEGER}}},
+		},
+		value: "3915 text\n\n",
+		kind:  reflect.String,
 	},
 }
 
