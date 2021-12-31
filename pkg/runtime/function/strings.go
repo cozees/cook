@@ -311,7 +311,11 @@ func init() {
 					} else if opts.Line {
 						array = append(array, s)
 						if nl {
-							result = append(result, array)
+							if opts.WS || opts.By != "" {
+								result = append(result, array)
+							} else {
+								result = append(result, array...)
+							}
 							array = make([]interface{}, 0, 1)
 						}
 					} else {
