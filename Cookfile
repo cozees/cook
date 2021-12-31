@@ -1,0 +1,9 @@
+
+all:
+    @print "Test pkg package"
+    PKGs = #go 'list' './...' | #grep 'pkg'
+    TPKGs = @ssplit '-l' PKGs
+    #go 'test' '-v' TPKGs
+
+    @print "Test Binary Build"
+    #go 'test' '-v' '-run' 'UB' 'github.com/cozees/cook/tests/...'
