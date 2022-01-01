@@ -219,7 +219,7 @@ revisit:
 		case '#':
 			tok = token.HASH
 		case '~':
-			tok = token.FILE
+			tok = token.FD
 		case '$':
 			tok = token.VAR
 		case '?':

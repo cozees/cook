@@ -64,7 +64,7 @@ const (
 	VAR            // $
 	QES            // ?
 	DQS            // ??
-	FILE           // ~
+	FD             // ~
 	PIPE           // |, it work exclusively in argument scanning
 
 	LBRACK // [
@@ -158,7 +158,7 @@ var tokens = [...]string{
 	VAR:            "$",
 	QES:            "?",
 	DQS:            "??",
-	FILE:           "~",
+	FD:             "~",
 	PIPE:           "|",
 	LBRACK:         "[",
 	LBRACE:         "{",

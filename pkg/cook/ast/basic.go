@@ -309,7 +309,7 @@ func (fb *Fallback) Evaluate(ctx Context) (v interface{}, k reflect.Kind, err er
 
 // SizeOf Evaluate return size of variable or literal value such as string, array, map
 func (sf *SizeOf) Evaluate(ctx Context) (v interface{}, k reflect.Kind, err error) {
-	if unary, ok := sf.X.(*Unary); ok && unary.Op == token.FILE {
+	if unary, ok := sf.X.(*Unary); ok && unary.Op == token.FD {
 		// return the size of the file instead
 		if fp, k, err := unary.Evaluate(ctx); err != nil {
 			return nil, reflect.Invalid, err
@@ -317,6 +317,12 @@ func (sf *SizeOf) Evaluate(ctx Context) (v interface{}, k reflect.Kind, err erro
 			return nil, reflect.Invalid, fmt.Errorf("%s is valid string filepath", unary)
 		} else if stat, err := os.Stat(fp.(string)); err != nil {
 			return int64(-1), reflect.Int64, nil
+		} else if stat.IsDir() {
+			if fis, err := ioutil.ReadDir(fp.(string)); err != nil {
+				return nil, reflect.Invalid, err
+			} else {
+				return int64(len(fis)), reflect.Int64, nil
+			}
 		} else {
 			return stat.Size(), reflect.Int64, nil
 		}
@@ -1052,7 +1058,7 @@ func (un *Unary) Evaluate(ctx Context) (interface{}, reflect.Kind, error) {
 		default:
 			return v != nil, reflect.Bool, nil
 		}
-	case un.Op == token.FILE:
+	case un.Op == token.FD:
 		// sizeof expression must check if node is unary and it's indicate file type Operator
 		return v.(string), reflect.String, nil
 	}

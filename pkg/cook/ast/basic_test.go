@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"reflect"
 	"runtime"
 	"strconv"
@@ -386,16 +387,21 @@ var exprCases = []*ExprAstTestCase{
 		kind:  reflect.Bool,
 	},
 	{ // case 58
-		node:  &SizeOf{X: &Unary{Op: token.FILE, X: &BasicLit{Lit: "basic.go", Kind: token.STRING}}},
+		node:  &SizeOf{X: &Unary{Op: token.FD, X: &BasicLit{Lit: "basic.go", Kind: token.STRING}}},
 		value: basicSize,
 		kind:  reflect.Int64,
 	},
 	{ // case 59
-		node:  &SizeOf{X: &Unary{Op: token.FILE, X: &BasicLit{Lit: "nowhere", Kind: token.STRING}}},
+		node:  &SizeOf{X: &Unary{Op: token.FD, X: &BasicLit{Lit: "nowhere", Kind: token.STRING}}},
 		value: int64(-1),
 		kind:  reflect.Int64,
 	},
 	{ // case 60
+		node:  &SizeOf{X: &Unary{Op: token.FD, X: &BasicLit{Lit: filepath.Join("..", "parser"), Kind: token.STRING}}},
+		value: int64(4),
+		kind:  reflect.Int64,
+	},
+	{ // case 61
 		node: &Pipe{
 			X: &Call{Kind: token.AT, Name: "print", Args: []Node{echo, &BasicLit{Lit: "text", Kind: token.STRING}}},
 			Y: &Pipe{
@@ -406,7 +412,7 @@ var exprCases = []*ExprAstTestCase{
 		value: "9.1 121 text\n\n\n",
 		kind:  reflect.String,
 	},
-	{ // case 61
+	{ // case 62
 		node: &Pipe{
 			X: &Call{Kind: token.AT, Name: "print", Args: []Node{echo, &BasicLit{Lit: "text", Kind: token.STRING}}},
 			Y: &Call{Kind: token.AT, Name: "print", Args: []Node{echo, &BasicLit{Lit: "3915", Kind: token.INTEGER}}},

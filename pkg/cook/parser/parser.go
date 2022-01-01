@@ -354,7 +354,7 @@ func (p *parser) parseBinaryExpr(isChaining bool, priority int) ast.Node {
 
 func (p *parser) parseUnaryExpr() (x ast.Node) {
 	switch p.cTok {
-	case token.ADD, token.SUB, token.NOT, token.XOR, token.FILE:
+	case token.ADD, token.SUB, token.NOT, token.XOR, token.FD:
 		offs, op := p.cOffs, p.cTok
 		p.next()
 		opr, _ := p.parseOperand()
@@ -367,7 +367,7 @@ func (p *parser) parseUnaryExpr() (x ast.Node) {
 		offs := p.cOffs
 		p.next()
 		var opr ast.Node
-		if p.cTok == token.FILE {
+		if p.cTok == token.FD {
 			opr = p.parseUnaryExpr()
 		} else {
 			opr, _ = p.parseOperand()
