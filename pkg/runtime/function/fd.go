@@ -624,7 +624,15 @@ var cpFlags = &args.Flags{
 	Description: `Copy one or more of files or directories. If the target is not exist the @cp will create like call @mkdir -p. ` + pathDesc,
 }
 
+var originalWorkingDir string
+
 func init() {
+	var err error
+	originalWorkingDir, err = os.Getwd()
+	if err != nil {
+		panic("unsupported operation get working directory \"Getwd\"")
+	}
+
 	registerFunction(NewBaseFunction(mkdirFlags, func(f Function, i interface{}) (interface{}, error) {
 		opts := i.(*fdOptions)
 		paths, err := readPath(f, opts, -1, 0)
@@ -659,11 +667,16 @@ func init() {
 	}))
 
 	registerFunction(NewBaseFunction(chdirFlags, func(f Function, i interface{}) (interface{}, error) {
-		paths, err := readPath(f, i.(*fdOptions), 1, 0)
-		if err != nil {
-			return nil, err
+		opts := i.(*fdOptions)
+		if len(opts.Args) == 0 {
+			return nil, os.Chdir(originalWorkingDir)
+		} else {
+			paths, err := readPath(f, opts, 1, 0)
+			if err != nil {
+				return nil, err
+			}
+			return nil, os.Chdir(paths[0])
 		}
-		return nil, os.Chdir(paths[0])
 	}, "chdir"))
 
 	registerFunction(NewBaseFunction(chownFlags, func(f Function, i interface{}) (interface{}, error) {

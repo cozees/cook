@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/cozees/cook/pkg/runtime/args"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -178,6 +179,11 @@ func TestChangeDir(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEqual(t, cdir, ndir)
 	assert.Equal(t, ndir, filepath.Join(cdir, tdir))
+	_, err = wf.Apply([]*args.FunctionArg{})
+	require.NoError(t, err)
+	ndir, err = os.Getwd()
+	require.NoError(t, err)
+	assert.Equal(t, cdir, ndir)
 }
 
 func TestChown(t *testing.T) {
