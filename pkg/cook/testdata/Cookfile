@@ -38,6 +38,18 @@ initialize:
 
 finalize:
     @print "-e" "finalize executed" >> FILE2
+    if #rmdir exists {
+        @print "-e" "rmdir existed" >> FILE2
+    }
+    if !(#__mooo__ exists) {
+        @print "-e" "moooh" >> FILE2
+    }
+    if ~"cook_test.go" exists {
+        @print "-e" "cook_test.go" >> FILE2
+    }
+    if !(~"cook_test___.go" exists) {
+        @print "-e" "cook_test___.go not found" >> FILE2
+    }
 
 all: *
 

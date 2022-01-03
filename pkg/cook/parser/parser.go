@@ -297,13 +297,23 @@ func (p *parser) parseAssignStatement(settableNode ast.SettableNode) {
 
 func (p *parser) parseBinaryExpr(isChaining bool, priority int) ast.Node {
 	p.next()
-	if p.cTok == token.IDENT && p.nTok == token.LPAREN {
-		return p.parseTransformation()
+	if p.cTok == token.IDENT {
+		if p.nTok == token.LPAREN {
+			return p.parseTransformation()
+		} else if p.nTok == token.EXISTS {
+			offs, lit := p.cOffs, p.cLit
+			p.next()
+			p.next()
+			base := &ast.Base{Offset: offs, File: p.tfile}
+			return &ast.Exists{Base: base, X: &ast.Ident{Base: base, Name: lit}}
+		}
 	}
 
 	x := p.parseUnaryExpr()
 	if isChaining && p.cTok.IsComparison() {
 		return x
+	} else if p.cTok == token.EXISTS {
+
 	}
 
 	var prevNode ast.Node
@@ -358,10 +368,19 @@ func (p *parser) parseUnaryExpr() (x ast.Node) {
 		offs, op := p.cOffs, p.cTok
 		p.next()
 		opr, _ := p.parseOperand()
-		x = &ast.Unary{
-			Base: &ast.Base{Offset: offs, File: p.tfile},
-			Op:   op,
-			X:    opr,
+		if p.cTok == token.EXISTS && op == token.FD {
+			p.next()
+			x = &ast.Exists{
+				Base: &ast.Base{Offset: offs, File: p.tfile},
+				Op:   op,
+				X:    opr,
+			}
+		} else {
+			x = &ast.Unary{
+				Base: &ast.Base{Offset: offs, File: p.tfile},
+				Op:   op,
+				X:    opr,
+			}
 		}
 	case token.SIZEOF:
 		offs := p.cOffs
@@ -385,8 +404,44 @@ func (p *parser) parseUnaryExpr() (x ast.Node) {
 		}
 	case token.TINTEGER, token.TFLOAT, token.TSTRING, token.TBOOLEAN:
 		x = p.parseTypeCaseExpr()
+	case token.ON:
+		offs := p.cOffs
+		p.next()
+		switch p.cTok {
+		case token.LINUX, token.MACOS, token.WINDOWS:
+			x = &ast.OSysCheck{Base: &ast.Base{Offset: offs, File: p.tfile}, OS: p.cTok}
+			p.next()
+		default:
+			p.errorHandler(p.curPos(), "expect operating system keyword got %s (%s)", p.cTok, p.cLit)
+			return nil
+		}
+	case token.HASH, token.AT:
+		op := p.cTok
+		base := &ast.Base{Offset: p.cOffs, File: p.tfile}
+		if p.next(); p.cTok == token.IDENT {
+			soffs, tok, lit := p.cOffs, p.cTok, p.cLit
+			if p.next(); p.cTok != token.EXISTS {
+				p.errorHandler(p.curPos(), "expect %s but got %s", token.EXISTS, p.cTok)
+				return nil
+			}
+			if tok == token.STRING {
+				x = &ast.BasicLit{Base: base, Lit: lit, Kind: tok, Mark: p.s.src[soffs-1]}
+			} else {
+				x = &ast.Ident{Base: base, Name: lit}
+			}
+		} else {
+			p.errorHandler(p.curPos(), "expect identifier or file expression but got %s", p.cTok)
+			return nil
+		}
+		x = &ast.Exists{Base: base, Op: op, X: x}
+		p.next()
 	default:
+		offs := p.cOffs
 		x, _ = p.parseOperand()
+		if p.cTok == token.EXISTS {
+			p.next()
+			x = &ast.Exists{Base: &ast.Base{Offset: offs, File: p.tfile}, X: x}
+		}
 	}
 	return
 }
@@ -612,6 +667,43 @@ func (p *parser) parseForLoop(inForLoop bool) {
 
 func (p *parser) parseIf(inForLoop bool, elstmt *ast.ElseStatement) {
 	offs := p.cOffs
+
+	// switch p.nTok {
+	// case token.ON:
+	// 	p.next()
+	// 	condOffs := p.cOffs
+	// 	switch p.next(); p.cTok {
+	// 	case token.LINUX, token.MACOS, token.WINDOWS:
+	// 		cond = &ast.OSysCheck{Base: &ast.Base{Offset: condOffs, File: p.tfile}, OS: p.cTok}
+	// 		p.next()
+	// 	default:
+	// 		p.errorHandler(p.curPos(), "expect operating system keyword got %s (%s)", p.cTok, p.cLit)
+	// 		return
+	// 	}
+	// case token.HASH, token.AT, token.FD:
+	// 	p.next()
+	// 	op := p.cTok
+	// 	base := &ast.Base{Offset: p.cOffs, File: p.tfile}
+	// 	var x ast.Node
+	// 	if p.next(); p.cTok == token.IDENT || (p.cTok == token.STRING && op == token.FD) {
+	// 		soffs, tok, lit := p.cOffs, p.cTok, p.cLit
+	// 		if p.next(); p.cTok != token.EXISTS {
+	// 			p.errorHandler(p.curPos(), "expect %s but got %s", token.EXISTS, p.cTok)
+	// 			return
+	// 		}
+	// 		if tok == token.STRING {
+	// 			x = &ast.BasicLit{Base: base, Lit: lit, Kind: tok, Mark: p.s.src[soffs-1]}
+	// 		} else {
+	// 			x = &ast.Ident{Base: base, Name: lit}
+	// 		}
+	// 	} else {
+	// 		p.errorHandler(p.curPos(), "expect identifier or file expression but got %s", p.cTok)
+	// 		return
+	// 	}
+	// 	cond = &ast.Exists{Base: base, Op: op, X: x}
+	// 	p.next()
+	// default:
+
 	cond := p.parseBinaryExpr(false, token.LowestPrec+1)
 	blcOffs := p.cOffs
 	if p.expect(token.LBRACE) == -1 {

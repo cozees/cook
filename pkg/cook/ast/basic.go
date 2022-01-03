@@ -8,11 +8,13 @@ import (
 	"os"
 	"os/exec"
 	"reflect"
+	"runtime"
 	"strconv"
 
 	"github.com/cozees/cook/pkg/cook/token"
 	cookErrors "github.com/cozees/cook/pkg/errors"
 	"github.com/cozees/cook/pkg/runtime/args"
+	"github.com/cozees/cook/pkg/runtime/function"
 )
 
 type Node interface {
@@ -144,6 +146,23 @@ type (
 		B        Node
 		BInclude bool
 		Step     Node
+	}
+
+	// A node represent expression to check operating system
+	OSysCheck struct {
+		*Base
+		OS token.Token
+	}
+
+	// A node represent expression to check something is existed include
+	// 1. Variable
+	// 2. File or Directory
+	// 3. Command
+	// 4. Function
+	Exists struct {
+		*Base
+		X  Node
+		Op token.Token
 	}
 
 	// A node represent call expression
@@ -609,7 +628,6 @@ func (ix *Index) evaluateInternal(ctx Context, setVal interface{}) (interface{},
 			if ik != reflect.Int64 {
 				return nil, 0, fmt.Errorf("%s: index value is not integer", ix.ErrPos())
 			} else if ind := int(i.(int64)); ind < 0 || ind >= vv.Len() {
-				fmt.Println(v)
 				return nil, 0, fmt.Errorf("%s: index %d out of range, array length %d", ix.ErrPos(), ind, vv.Len())
 			} else if setVal != nil {
 				vv.Index(ind).Set(reflect.ValueOf(setVal))
@@ -758,6 +776,42 @@ func (r *Interval) Evaluate(ctx Context) (interface{}, reflect.Kind, error) {
 			}
 			return []int64{ia, ib, st}, reflect.Slice, nil
 		}
+	}
+}
+
+// OSysCheck Evaluate return true if current operating system is match against expression OS value
+func (osc *OSysCheck) Evaluate(ctx Context) (interface{}, reflect.Kind, error) {
+	return osc.OS.String() == runtime.GOOS, reflect.Bool, nil
+}
+
+// Exists Evaluate verify whether a variable, file/folder, command or function is existed
+func (e *Exists) Evaluate(ctx Context) (interface{}, reflect.Kind, error) {
+	if e.Op == token.FD {
+		fp, kind, err := e.X.Evaluate(ctx)
+		if err != nil {
+			return nil, 0, err
+		} else if kind != reflect.String {
+			return nil, 0, fmt.Errorf("value %v cannot represent file path", fp)
+		} else {
+			_, err = os.Stat(fp.(string))
+			return err == nil, reflect.Bool, nil
+		}
+	} else if ident, ok := e.X.(*Ident); ok {
+		switch e.Op {
+		case token.AT:
+			return function.GetFunction(ident.Name) != nil, reflect.Bool, nil
+		case token.HASH:
+			_, err := exec.LookPath(ident.Name)
+			return err == nil, reflect.Bool, nil
+		default:
+			v, _, _ := ctx.GetVariable(ident.Name)
+			return v != nil, reflect.Bool, nil
+		}
+	} else if ix, ok := e.X.(*Index); ok {
+		v, _, err := ix.Evaluate(ctx)
+		return err == nil && v != nil, reflect.Bool, nil
+	} else {
+		panic(fmt.Sprintf("cook internal error: illegal token %s use with exists expression", e.Op))
 	}
 }
 

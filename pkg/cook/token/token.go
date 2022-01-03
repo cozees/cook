@@ -92,6 +92,13 @@ const (
 	CONTINUE
 	INCLUDE
 	DELETE
+	ON
+	EXISTS
+
+	// operating system keyword
+	LINUX
+	MACOS
+	WINDOWS
 
 	// type keyword specific
 	type_rep_beg
@@ -182,6 +189,11 @@ var tokens = [...]string{
 	CONTINUE:       "continue",
 	INCLUDE:        "include",
 	DELETE:         "delete",
+	ON:             "on",
+	EXISTS:         "exists",
+	LINUX:          "linux",
+	MACOS:          "darwin",
+	WINDOWS:        "windows",
 	TINTEGER:       "integer",
 	TFLOAT:         "float",
 	TBOOLEAN:       "boolean",

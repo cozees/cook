@@ -45,6 +45,10 @@ text 83 38
 		output: `
 123 abc
 finalize executed
+rmdir existed
+moooh
+cook_test.go
+cook_test___.go not found
 `,
 	},
 }

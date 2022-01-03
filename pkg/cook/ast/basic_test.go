@@ -29,6 +29,22 @@ var keys []Node
 var lmaps = make(map[interface{}]interface{})
 var basicSize int64
 var echo = &BasicLit{Lit: "-e", Kind: token.STRING}
+var curOSTok, nonOSTok = getOSToken()
+
+func getOSToken() (a, b token.Token) {
+	switch runtime.GOOS {
+	case "linux":
+		a = token.LINUX
+		b = token.WINDOWS
+	case "darwin":
+		a = token.MACOS
+		b = token.WINDOWS
+	case "windows":
+		a = token.WINDOWS
+		b = token.LINUX
+	}
+	return
+}
 
 func init() {
 	for i := 1; i < 9; i++ {
@@ -419,6 +435,51 @@ var exprCases = []*ExprAstTestCase{
 		},
 		value: "3915 text\n\n",
 		kind:  reflect.String,
+	},
+	{ // case 63
+		node:  &OSysCheck{OS: curOSTok},
+		value: true,
+		kind:  reflect.Bool,
+	},
+	{ // case 64
+		node:  &OSysCheck{OS: nonOSTok},
+		value: false,
+		kind:  reflect.Bool,
+	},
+	{ // case 65
+		node:  &Exists{Op: token.AT, X: &Ident{Name: "print"}},
+		value: true,
+		kind:  reflect.Bool,
+	},
+	{ // case 66
+		node:  &Exists{Op: token.HASH, X: &Ident{Name: "rmdir"}}, // rmdir command is exist on both unix and windows
+		value: true,
+		kind:  reflect.Bool,
+	},
+	{ // case 67
+		node:  &Exists{X: &Ident{Name: "sample"}}, // rmdir command is exist on both unix and windows
+		value: false,
+		kind:  reflect.Bool,
+	},
+	{ // case 68
+		node:  &Exists{Op: token.FD, X: &BasicLit{Lit: "_____", Kind: token.STRING}},
+		value: false,
+		kind:  reflect.Bool,
+	},
+	{ // case 69
+		node:  &Exists{Op: token.FD, X: &BasicLit{Lit: "basic.go", Kind: token.STRING}},
+		value: true,
+		kind:  reflect.Bool,
+	},
+	{ // case 70
+		node:  &Exists{X: &Index{Base: dummyBase, Index: &BasicLit{Lit: "10", Kind: token.INTEGER}, X: &Ident{Name: "var5"}}},
+		value: false,
+		kind:  reflect.Bool,
+	},
+	{ // case 71
+		node:  &Exists{X: &Index{Base: dummyBase, Index: &BasicLit{Lit: "119.0", Kind: token.INTEGER}, X: &Ident{Name: "var6"}}},
+		value: false,
+		kind:  reflect.Bool,
 	},
 }
 

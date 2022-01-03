@@ -93,6 +93,8 @@ func (d *Delete) String() string               { return codeOf(d) }
 func (ix *Index) String() string               { return codeOf(ix) }
 func (sv *SubValue) String() string            { return codeOf(sv) }
 func (r *Interval) String() string             { return codeOf(r) }
+func (osc *OSysCheck) String() string          { return codeOf(osc) }
+func (e *Exists) String() string               { return codeOf(e) }
 func (c *Call) String() string                 { return codeOf(c) }
 func (pp *Pipe) String() string                { return codeOf(pp) }
 func (rf *ReadFrom) String() string            { return codeOf(rf) }
@@ -262,6 +264,19 @@ func (r *Interval) Visit(cb CodeBuilder) {
 	} else {
 		cb.WriteByte(')')
 	}
+}
+
+func (osc *OSysCheck) Visit(cb CodeBuilder) {
+	cb.WriteString("on ")
+	cb.WriteString(osc.OS.String())
+}
+
+func (e *Exists) Visit(cb CodeBuilder) {
+	if e.Op != token.ILLEGAL {
+		cb.WriteString(e.Op.String())
+	}
+	e.X.Visit(cb)
+	cb.WriteString(" exists")
 }
 
 func (c *Call) Visit(cb CodeBuilder) {

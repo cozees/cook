@@ -174,6 +174,9 @@ revisit:
 				} else {
 					skipLineFeed = false
 				}
+			} else if tok == token.EXISTS {
+				skipLineFeed = true
+				s.mode &^= scanArgument
 			}
 		}
 	case isDecimal(ch):

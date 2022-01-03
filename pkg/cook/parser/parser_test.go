@@ -71,6 +71,15 @@ var simpleCases = []*parserInputCase{
 	/* case 44 */ {in: "if sizeof ~'file' == -1 { @print 123 \n }", out: "if sizeof ~'file' == -1 {\n@print 123\n}\n"},
 	/* case 45 */ {in: "@print 45 | @print 'text'", out: "@print 45 | @print 'text'\n"},
 	/* case 46 */ {in: "@print 45 | @print 'text' >> FILE", out: "@print 45 | @print 'text' >> FILE\n"},
+	/* case 47 */ {in: "if on linux {}", out: "if on linux {\n}\n"},
+	/* case 48 */ {in: "if on darwin {}", out: "if on darwin {\n}\n"},
+	/* case 49 */ {in: "if on windows {}", out: "if on windows {\n}\n"},
+	/* case 50 */ {in: "if ~'file' exists {}", out: "if ~'file' exists {\n}\n"},
+	/* case 51 */ {in: "if A exists {}", out: "if A exists {\n}\n"},
+	/* case 52 */ {in: "if A[1] exists {}", out: "if A[1] exists {\n}\n"},
+	/* case 53 */ {in: "if @print exists {}", out: "if @print exists {\n}\n"},
+	/* case 54 */ {in: "if #rmdir exists {}", out: "if #rmdir exists {\n}\n"},
+	/* case 55 */ {in: "if #rmdir exists && on windows {}", out: "if #rmdir exists && on windows {\n}\n"},
 }
 
 func TestParseSimpleStatement(t *testing.T) {

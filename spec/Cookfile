@@ -8,7 +8,6 @@ G = {A: 1, 2: D}
 H = 'it also possible to write $C or $D or $E with interpolion or string literal.'
 A = A + B
 
-@windows
 target:
     @print $B
 
@@ -19,6 +18,13 @@ target:
             @print $i
         } else {
             @print 'value' i 'is' smaller than 10
+        }
+        if on windows {
+
+        } else if on linux {
+
+        } else if #gcc exists {
+
         }
     }
 
