@@ -44,7 +44,7 @@ true/false                  // boolean value
 ```
 
 In cook, there are two ways to define multiple line string. It can be done by simply wrap multiple
-line string in a backquote (`) or written them in line. The backquote string will preserve everything except string interpolation while the simple multiple line string does not perserve everyting, it elimiate any leading or trailing whitespace except a newline for unquoted string.
+line string in a backquote (`) or written them in line. The backquote string will preserve everything except string interpolation while the simple multiple line string does not perserve everyting, it elimiate any leading and trailing whitespace.
 
 ```cook
 // Multiline string below is equal to "\n\ttext line1\n\ttext line2\n"
@@ -59,7 +59,7 @@ A = "CREATE TABLE A ("
     ")"
 ```
 
-String interpolation or string literal can done using dollar sign within the string. Unlike other language that feature string interpolation, Cook allow string interpolation on any form of string declaration, so exclude it you've to use string escape \ backslash.
+String interpolation can declare using dollar sign within the string. Unlike other language, Cook allow string interpolation on any form of string declaration, so to escape it you've to use string escape \ backslash before the dollar sign.
 
 ```cook
 // B result with "Simple text 123 with escape $A"
@@ -103,7 +103,7 @@ B = A{1..3}             // substring A to B is "amp"
 
 ## Array
 
-An array is dynamic list that can contain any value and any length.
+An array is a dynamic list that can contain any value and unlimited size.
 
 ```cook
 A = [1, 2.34, myfile.txt]
@@ -134,7 +134,7 @@ delete A{1..3}            // removing 2 item at position 1, 2, 3
 delete A{1,2,3}           // removing 2 item at position 1, 2, 3
 
 // slice array, since we built using Golang, we also take advantage of using Go slice too
-// A current is [2, myfile.txt]
+// A current value is [2, myfile.txt]
 A += [5, 3, 6]      // A is [2, myfile.txt, 5, 3, 6]
 B = A{2..4}         // B is [5, 3, 6]
 
@@ -145,14 +145,14 @@ A[0] += 1
 
 ## Map
 
-As Cook build using Go, the map in Cook is behavor just like map in Go.
+As Cook build using Go, the map in Cook is behavor just like map in Go. The Map item is not
+ordered so be mind full using it.
 
 ```cook
 A = {1:2, 2:"text"}
 
 // merge new map into exist map A. + allowed merge new map (right) to existing map (left)
-// with no conflict key on both map. If you're not sure that key of both map has conflict
-// use below syntax.
+// with no conflict key on both map.
 A += {3:"21", "a": 8.2}         // {1:2, 2:"text", 3:"21", "a":8.2}
 
 // Use "<" to resolve conflict in favor or a new map or "?" to resolve conflict in favor
@@ -172,13 +172,26 @@ Transform
 
 ```cook
 A = [1, 2, 3]
-B = A(i, v) => (i + 1) * v          // B is array immultable is value is based on value of A
-B[1] = 1                            // error modified immultable array is not allowed
-@print B[1] B[2]                    // print "4 9"
+
+// B is an array immultabl, its value is based on value of array A
+B = A(i, v) => (i + 1) * v
+
+// Cook raise an error if we try to modify an immultable array
+B[1] = 1
+
+// print out "4 9"
+@print B[1] B[2]                    
+
+// Change source of transform array effect all sub transform array
 A[0] = 5
 @print B                            // print "5, 4, 9"
+
+// Even update array A in place, the transform array B values is still
+// base on array A.
 A = A(i, v) => (i + 1) * v          // A is now [5, 4, 9]
 @print B                            // print "5, 8, 27"
+
+// Transformation can be applied map or dictionary as well
 A = {1:2, 2:4}
 B = A(k, v) => v * k                // B is {1:2, 2:8}
 @print B[1] B[2] A[1] A[2]          // print "2 8 2 4"
@@ -218,9 +231,10 @@ Special exception case when writting call argument.
 
 # Function
 
-Cook function is similar other language except it does not allow use to specify explicitly return type or argument type since Cook is pretty much a dynamic type where a variable can hold any type value.
+Cook function is similar other language except it does not required explicitly return type or argument type.
 
-For built-in function document visit [here](docs/functions/all.md)
+For built-in function document visit [here](docs/functions/all.md). Our built-in function is defined
+in the form of Command call there you can literally print out function description or documentation.
 
 ```cook
 // function lamda syntax
@@ -234,7 +248,7 @@ sample(a, b) {
 
 # Target
 
-A target is similar to a function exception is does not allow explicit argument declaration and it also forbid from return any value. However you can still call and pass argument to target the same way that you pass argument to a function. To access argument in target, use "$" follow by number of index variable which pass to. The argument "$0" represent total number of argument pass to the target.
+A target is similar to a function exception is does not allow explicit argument declaration and it also forbid from return any value. However you can still call and pass argument to target the same way that you pass argument to a function. To access argument in target, use dollar sign "$" follow by number of index variable which pass to. The argument "$0" represent total number of argument pass to the target.
 
 ```cook
 target:
@@ -260,11 +274,32 @@ if a > 0 {
 }
 ```
 
+Using Ternary syntax for short if else. Although, Cook support nested ternary you avoid it if possible.
+
+```cook
+A = expression ? true : false
+```
+
+Using fallback syntax for default value. Note Cook allow expression syntax on default value as well
+thus it is up to developer to make sure that default value is absolutely return a value and not an
+error of any kind. Fallback syntax occurred when the primary value or expression match condition below:
+
+- Variable not existed
+- Index out of range or index not existed
+- There is an error when evaluate expression/primary value
+
+The below example express that if the evaluation of "expression" raise error that match above description then the variable A is set to default value integer 0.
+
+```cook
+A = expression ?? 0
+```
+
 ## For loop
 
 ```cook
-// range is included value meaning variable i is start from 1 til 10.
-// Variable i can be modified in loop to step purposely.
+// Looping using range syntax.
+// Variable i can be modified in the loop to purposely increasing step.
+// By default, range loop syntax has a default step where it increase or decrease by 1
 for i in 1..10 {
     // block execution
     if i > 5 {
@@ -273,14 +308,9 @@ for i in 1..10 {
     }
 }
 
-// loop in item in array, this can also be done using range like below
-for index, value in [1, 2, 3] {
-    // block execution
-    // it's safe to remove item from array
-}
-
 // using math interval syntax to exclude value in range. Below index i is loop
-// starting from 0 til 2 rather 3
+// starting from 0 until 2 rather 3.
+// The loop step is increase by 2 rather than the default value 1
 A = [1, 2, 3]
 for i in [0..sizeof A):2 {
     // block execution
